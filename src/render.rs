@@ -292,7 +292,6 @@ impl State {
 			render_pass.draw_model_instanced(&self.model_instance, &self.camera_bind_group);
 		}
 
-
 		self.queue.submit(std::iter::once(encoder.finish()));
 		output.present();
 
