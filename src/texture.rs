@@ -3,6 +3,8 @@ use std::num::NonZeroU32;
 use image::{DynamicImage, GenericImageView};
 use anyhow::*;
 
+use crate::assets::loader;
+
 #[derive(Debug)]
 pub struct Texture {
 	pub texture: wgpu::Texture,
@@ -11,6 +13,16 @@ pub struct Texture {
 }
 
 impl Texture {
+	pub fn from_file(
+		device: &wgpu::Device,
+		queue: &wgpu::Queue,
+		file_name: &str,
+		label: &str,
+	) -> Result<Self> {
+		let bytes = loader().load_bytes(file_name)?;
+		Self::from_bytes(device, queue, &bytes, label)
+	}
+
 	pub fn from_bytes(
 		device: &wgpu::Device,
 		queue: &wgpu::Queue,

@@ -10,6 +10,7 @@ use wgpu::util::DeviceExt;
 
 use crate::texture::Texture;
 use crate::camera::{Camera, CameraController};
+use crate::model::{Vertex, ModelVertex, Model, DrawModel};
 
 #[derive(Debug)]
 struct Instance {
@@ -44,50 +45,6 @@ impl InstanceRaw {
 	}
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-	position: [f32; 3],
-	tex_pos: [f32; 2],
-}
-
-impl Vertex {
-	const ATTRIBS: [wgpu::VertexAttribute; 2] =
-		wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
-
-	fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-		wgpu::VertexBufferLayout {
-			array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
-			step_mode: wgpu::VertexStepMode::Vertex,
-			attributes: &Self::ATTRIBS,
-		}
-	}
-}
-
-/*const VERTICIES: &[Vertex] = &[
-	Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-	Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-	Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
-];
-
-const INDECIES: &[u16] = &[
-	0, 1, 2,
-];*/
-
-const VERTICIES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_pos: [0.4131759, 1.0 - 0.99240386], },
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_pos: [0.0048659444, 1.0 - 0.56958647], },
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], tex_pos: [0.28081453, 1.0 - 0.05060294], },
-    Vertex { position: [0.35966998, -0.3473291, 0.0], tex_pos: [0.85967, 1.0 - 0.1526709], },
-    Vertex { position: [0.44147372, 0.2347359, 0.0], tex_pos: [0.9414737, 1.0 - 0.7347359], },
-];
-
-const INDECIES: &[u16] = &[
-	0, 1, 4,
-	1, 2, 4,
-	2, 3, 4,
-];
-
 const INSTANCES_PER_ROW: u32 = 10;
 const INSTANCE_DISPLACEMENT: Vector3<f32> = Vector3::new(INSTANCES_PER_ROW as f32 * 0.5, 0.0, INSTANCES_PER_ROW as f32 * 0.5);
 
@@ -99,13 +56,12 @@ pub struct State {
 	queue: wgpu::Queue,
 	config: wgpu::SurfaceConfiguration,
 	render_pipeline: wgpu::RenderPipeline,
-	vertex_buffer: wgpu::Buffer,
-	num_verticies: u32,
-	index_buffer: wgpu::Buffer,
-	num_indicies: u32,
+	model: Model,
+	// TODO: put instances in a data structure with model
 	instances: Vec<Instance>,
 	instance_buffer: wgpu::Buffer,
 	depth_texture: Texture,
+	// TODO: remove
 	diffuse_texture: Texture,
 	diffuse_bind_group: wgpu::BindGroup,
 	camera: Camera,
@@ -258,7 +214,7 @@ impl State {
 				module: &shader,
 				entry_point: "vs_main",
 				buffers: &[
-					Vertex::desc(),
+					ModelVertex::desc(),
 					InstanceRaw::desc(),
 				],
 			},
@@ -298,30 +254,19 @@ impl State {
 			multiview: None,
 		});
 
-		let vertex_buffer = device.create_buffer_init(
-			&wgpu::util::BufferInitDescriptor {
-				label: Some("Vertex Buffer"),
-				contents: bytemuck::cast_slice(VERTICIES),
-				usage: wgpu::BufferUsages::VERTEX,
-			}
-		);
+		let model = Model::load_from_file("cube.obj", &device, &queue, &texture_bind_group_layout).unwrap();
 
-		let index_buffer = device.create_buffer_init(
-			&wgpu::util::BufferInitDescriptor {
-				label: Some("Index Buffer"),
-				contents: bytemuck::cast_slice(INDECIES),
-				usage: wgpu::BufferUsages::INDEX,
-			}
-		);
-
+		const SPACE_BETWEEN: f32 = 3.0;
 		let instances = (0..INSTANCES_PER_ROW).flat_map(|z| {
 			(0..INSTANCES_PER_ROW).map(move |x| {
-				let translation = Vector3::new(x as f32, 0.0, z as f32) - INSTANCE_DISPLACEMENT;
-				
+				let x = SPACE_BETWEEN * (x as f32 - INSTANCES_PER_ROW as f32 / 2.0);
+				let z = SPACE_BETWEEN * (z as f32 - INSTANCES_PER_ROW as f32 / 2.0);
+				let translation = Vector3::new(x, 0.0, z);
+
 				let rotation = if translation == Vector3::zeros() {
 					UnitQuaternion::identity()
 				} else {
-					UnitQuaternion::from_axis_angle(&Unit::new_normalize(translation), std::f32::consts::FRAC_PI_2)
+					UnitQuaternion::from_axis_angle(&Unit::new_normalize(translation), std::f32::consts::FRAC_PI_4)
 				};
 
 				let scale = Scale3::identity();
@@ -349,10 +294,7 @@ impl State {
 			queue,
 			config,
 			render_pipeline,
-			vertex_buffer,
-			num_verticies: VERTICIES.len() as u32,
-			index_buffer,
-			num_indicies: INDECIES.len() as u32,
+			model,
 			instances,
 			instance_buffer,
 			depth_texture,
@@ -420,14 +362,13 @@ impl State {
 				}),
 			});
 
+			// TEMP
+			render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+
 			render_pass.set_pipeline(&self.render_pipeline);
 			render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
 			render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-			render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-			render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-			render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-			render_pass.draw_indexed(0..self.num_indicies, 0, 0..(self.instances.len() as u32));
+			render_pass.draw_mesh_instanced(&self.model.meshes[0], 0..self.instances.len() as u32);
 		}
 
 

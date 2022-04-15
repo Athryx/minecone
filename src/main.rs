@@ -1,3 +1,5 @@
+#![feature(once_cell)]
+
 #[macro_use]
 extern crate log;
 
@@ -11,9 +13,11 @@ use winit::{
 	window::WindowBuilder,
 };
 
+mod assets;
 mod render;
 mod texture;
 mod camera;
+mod model;
 
 pub async fn run() {
 	let event_loop = EventLoop::new();
