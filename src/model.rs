@@ -1,8 +1,8 @@
 use std::mem;
-use std::ops::Range;
 
 use anyhow::Result;
 use wgpu::util::DeviceExt;
+use nalgebra::{Vector3, Scale3, Matrix4, UnitQuaternion};
 
 use crate::texture::Texture;
 use crate::assets::loader;
@@ -146,30 +146,91 @@ impl Model {
 	}
 }
 
+#[derive(Debug)]
+pub struct Instance {
+	pub translation: Vector3<f32>,
+	pub rotation: UnitQuaternion<f32>,
+	pub scale: Scale3<f32>,
+}
+
+impl Instance {
+	fn to_raw(&self) -> InstanceRaw {
+		let translation = Matrix4::new_translation(&self.translation);
+		let rotation = self.rotation.to_homogeneous();
+		let scale = self.scale.to_homogeneous();
+		InstanceRaw((translation * rotation * scale).into())
+	}
+}
+
+impl Default for Instance {
+	fn default() -> Self {
+		Instance {
+			translation: Vector3::zeros(),
+			rotation: UnitQuaternion::identity(),
+			scale: Scale3::identity(),
+		}
+	}
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct InstanceRaw([[f32; 4]; 4]);
+
+impl InstanceRaw {
+	const ATTRIBS: [wgpu::VertexAttribute; 4] =
+		wgpu::vertex_attr_array![5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
+}
+
+impl Vertex for InstanceRaw {
+	fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+		wgpu::VertexBufferLayout {
+			array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+			step_mode: wgpu::VertexStepMode::Instance,
+			attributes: &Self::ATTRIBS,
+		}
+	}
+}
+
+#[derive(Debug)]
+pub struct ModelInstance {
+	model: Model,
+	instances: Vec<Instance>,
+	instance_buffer: wgpu::Buffer,
+}
+
+impl ModelInstance {
+	pub fn new(device: &wgpu::Device, model: Model, instances: Vec<Instance>) -> Self {
+		let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+		let instance_buffer = device.create_buffer_init(
+			&wgpu::util::BufferInitDescriptor {
+				label: Some("instance buffer"),
+				contents: bytemuck::cast_slice(&instance_data),
+				usage: wgpu::BufferUsages::VERTEX,
+			}
+		);
+
+		Self {
+			model,
+			instances,
+			instance_buffer,
+		}
+	}
+
+	// ceates a model instance which draws 1 model with no changes
+	pub fn identity(device: &wgpu::Device, model: Model) -> Self {
+		Self::new(device, model, vec![Instance::default()])
+	}
+
+	pub fn num_instances(&self) -> u32 {
+		self.instances.len().try_into().unwrap()
+	}
+}
+
 // model.rs
 pub trait DrawModel<'a> {
-	fn draw_mesh(
-		&mut self,
-		mesh: &'a Mesh,
-		material: &'a Material,
-		camera_bind_group: &'a wgpu::BindGroup
-	);
-	fn draw_mesh_instanced(
-		&mut self,
-		mesh: &'a Mesh,
-		material: &'a Material,
-		instances: Range<u32>,
-		camera_bind_group: &'a wgpu::BindGroup
-	);
-	fn draw_model(
-		&mut self,
-		model: &'a Model,
-		camera_bind_group: &'a wgpu::BindGroup,
-	);
 	fn draw_model_instanced(
 		&mut self,
-		model: &'a Model,
-		instances: Range<u32>,
+		model: &'a ModelInstance,
 		camera_bind_group: &'a wgpu::BindGroup,
 	);
 }
@@ -178,46 +239,21 @@ impl<'a, 'b> DrawModel<'b> for wgpu::RenderPass<'a>
 where
 	'b: 'a,
 {
-	fn draw_mesh(
-		&mut self,
-		mesh: &'b Mesh,
-		material: &'b Material,
-		camera_bind_group: &'b wgpu::BindGroup
-	) {
-		self.draw_mesh_instanced(mesh, material, 0..1, camera_bind_group);
-	}
-
-	fn draw_mesh_instanced(
-		&mut self,
-		mesh: &'b Mesh,
-		material: &'b Material,
-		instances: Range<u32>,
-		camera_bind_group: &'b wgpu::BindGroup
-	) {
-		self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-		self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-		self.set_bind_group(0, &material.bind_group, &[]);
-		self.set_bind_group(1, camera_bind_group, &[]);
-		self.draw_indexed(0..mesh.num_elements, 0, instances);
-	}
-
-	fn draw_model(
-		&mut self,
-		model: &'b Model,
-		camera_bind_group: &'b wgpu::BindGroup,
-	) {
-		self.draw_model_instanced(model, 0..1, camera_bind_group);
-	}
-
 	fn draw_model_instanced(
 		&mut self,
-		model: &'b Model,
-		instances: Range<u32>,
+		model_instance: &'b ModelInstance,
 		camera_bind_group: &'b wgpu::BindGroup,
 	) {
-		for mesh in model.meshes.iter() {
-			let material = &model.materials[mesh.material_index];
-			self.draw_mesh_instanced(mesh, material, instances.clone(), camera_bind_group)
+		self.set_vertex_buffer(1, model_instance.instance_buffer.slice(..));
+
+		for mesh in model_instance.model.meshes.iter() {
+			let material = &model_instance.model.materials[mesh.material_index];
+
+			self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+			self.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+			self.set_bind_group(0, &material.bind_group, &[]);
+			self.set_bind_group(1, camera_bind_group, &[]);
+			self.draw_indexed(0..mesh.num_elements, 0, 0..model_instance.num_instances());
 		}
 	}
 }

@@ -1,7 +1,6 @@
 use std::time::Duration;
-use std::mem;
 
-use nalgebra::{Point3, Vector3, Scale3, Matrix4, UnitQuaternion, Unit};
+use nalgebra::{Point3, Vector3, Scale3, UnitQuaternion, Unit};
 use winit::{
 	window::Window,
 	event::WindowEvent,
@@ -10,43 +9,7 @@ use wgpu::util::DeviceExt;
 
 use crate::texture::Texture;
 use crate::camera::{Camera, CameraController};
-use crate::model::{Vertex, ModelVertex, Model, DrawModel};
-
-#[derive(Debug)]
-struct Instance {
-	translation: Vector3<f32>,
-	rotation: UnitQuaternion<f32>,
-	scale: Scale3<f32>,
-}
-
-impl Instance {
-	fn to_raw(&self) -> InstanceRaw {
-		let translation = Matrix4::new_translation(&self.translation);
-		let rotation = self.rotation.to_homogeneous();
-		let scale = self.scale.to_homogeneous();
-		InstanceRaw((translation * rotation * scale).into())
-	}
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRaw([[f32; 4]; 4]);
-
-impl InstanceRaw {
-	const ATTRIBS: [wgpu::VertexAttribute; 4] =
-		wgpu::vertex_attr_array![5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
-
-	fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-		wgpu::VertexBufferLayout {
-			array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
-			step_mode: wgpu::VertexStepMode::Instance,
-			attributes: &Self::ATTRIBS,
-		}
-	}
-}
-
-const INSTANCES_PER_ROW: u32 = 10;
-const INSTANCE_DISPLACEMENT: Vector3<f32> = Vector3::new(INSTANCES_PER_ROW as f32 * 0.5, 0.0, INSTANCES_PER_ROW as f32 * 0.5);
+use crate::model::{Vertex, ModelVertex, InstanceRaw, Instance, Model, ModelInstance, DrawModel};
 
 
 #[derive(Debug)]
@@ -56,15 +19,12 @@ pub struct State {
 	queue: wgpu::Queue,
 	config: wgpu::SurfaceConfiguration,
 	render_pipeline: wgpu::RenderPipeline,
-	model: Model,
-	// TODO: put instances in a data structure with model
-	instances: Vec<Instance>,
-	instance_buffer: wgpu::Buffer,
 	depth_texture: Texture,
 	camera: Camera,
 	camera_controler: CameraController,
 	camera_buffer: wgpu::Buffer,
 	camera_bind_group: wgpu::BindGroup,
+	model_instance: ModelInstance,
 	pub size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -231,6 +191,7 @@ impl State {
 
 		let model = Model::load_from_file("cube.obj", &device, &queue, &texture_bind_group_layout).unwrap();
 
+		const INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 3.0;
 		let instances = (0..INSTANCES_PER_ROW).flat_map(|z| {
 			(0..INSTANCES_PER_ROW).map(move |x| {
@@ -254,14 +215,7 @@ impl State {
 			})
 		}).collect::<Vec<_>>();
 
-		let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-		let instance_buffer = device.create_buffer_init(
-			&wgpu::util::BufferInitDescriptor {
-				label: Some("instance buffer"),
-				contents: bytemuck::cast_slice(&instance_data),
-				usage: wgpu::BufferUsages::VERTEX,
-			}
-		);
+		let model_instance = ModelInstance::new(&device, model, instances);
 
 		Self {
 			surface,
@@ -269,14 +223,12 @@ impl State {
 			queue,
 			config,
 			render_pipeline,
-			model,
-			instances,
-			instance_buffer,
 			depth_texture,
 			camera,
 			camera_controler,
 			camera_buffer,
 			camera_bind_group,
+			model_instance,
 			size,
 		}
 	}
@@ -335,12 +287,9 @@ impl State {
 				}),
 			});
 
-			// TEMP
-			render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-
 			render_pass.set_pipeline(&self.render_pipeline);
 
-			render_pass.draw_model_instanced(&self.model, 0..self.instances.len() as u32, &self.camera_bind_group);
+			render_pass.draw_model_instanced(&self.model_instance, &self.camera_bind_group);
 		}
 
 
