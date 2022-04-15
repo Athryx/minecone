@@ -61,9 +61,6 @@ pub struct State {
 	instances: Vec<Instance>,
 	instance_buffer: wgpu::Buffer,
 	depth_texture: Texture,
-	// TODO: remove
-	diffuse_texture: Texture,
-	diffuse_bind_group: wgpu::BindGroup,
 	camera: Camera,
 	camera_controler: CameraController,
 	camera_buffer: wgpu::Buffer,
@@ -105,11 +102,6 @@ impl State {
 		};
 		surface.configure(&device, &config);
 
-
-		// load texture
-		let diffuse_bytes = include_bytes!("happy-tree.png");
-		let diffuse_texture = Texture::from_bytes(&device, &queue, diffuse_bytes, "diffuse_texture").unwrap();
-
 		let texture_bind_group_layout = device.create_bind_group_layout(
 			&wgpu::BindGroupLayoutDescriptor {
 				label: Some("texture_bind_group_layout"),
@@ -130,23 +122,6 @@ impl State {
 						ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
 						count: None,
 					},
-				],
-			}
-		);
-
-		let diffuse_bind_group = device.create_bind_group(
-			&wgpu::BindGroupDescriptor {
-				label: Some("diffuse_bind_group"),
-				layout: &texture_bind_group_layout,
-				entries: &[
-					wgpu::BindGroupEntry {
-						binding: 0,
-						resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-					},
-					wgpu::BindGroupEntry {
-						binding: 1,
-						resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-					}
 				],
 			}
 		);
@@ -298,8 +273,6 @@ impl State {
 			instances,
 			instance_buffer,
 			depth_texture,
-			diffuse_texture,
-			diffuse_bind_group,
 			camera,
 			camera_controler,
 			camera_buffer,
@@ -366,9 +339,8 @@ impl State {
 			render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
 
 			render_pass.set_pipeline(&self.render_pipeline);
-			render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-			render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-			render_pass.draw_mesh_instanced(&self.model.meshes[0], 0..self.instances.len() as u32);
+
+			render_pass.draw_model_instanced(&self.model, 0..self.instances.len() as u32, &self.camera_bind_group);
 		}
 
 
