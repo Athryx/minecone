@@ -104,7 +104,7 @@ impl State {
 
 		let texture_bind_group_layout = device.create_bind_group_layout(
 			&wgpu::BindGroupLayoutDescriptor {
-				label: Some("texture_bind_group_layout"),
+				label: Some("texture bind group layout"),
 				entries: &[
 					wgpu::BindGroupLayoutEntry {
 						binding: 0,
@@ -143,7 +143,7 @@ impl State {
 
 		let camera_bind_group_layout = device.create_bind_group_layout(
 			&wgpu::BindGroupLayoutDescriptor {
-				label: Some("camera_bind_group_layout"),
+				label: Some("camera bind group layout"),
 				entries: &[
 					wgpu::BindGroupLayoutEntry {
 						binding: 0,
@@ -161,7 +161,7 @@ impl State {
 
 		let camera_bind_group = device.create_bind_group(
 			&wgpu::BindGroupDescriptor {
-				label: Some("camera_bind_group"),
+				label: Some("camera bind group"),
 				layout: &camera_bind_group_layout,
 				entries: &[
 					wgpu::BindGroupEntry {
@@ -174,7 +174,7 @@ impl State {
 
 		let shader = device.create_shader_module(&wgpu::include_wgsl!("shader.wgsl"));
 		let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-			label: Some("Render Pipeline Layout"),
+			label: Some("render pipeline layout"),
 			bind_group_layouts: &[
 				&texture_bind_group_layout,
 				&camera_bind_group_layout,
@@ -183,7 +183,7 @@ impl State {
 		});
 
 		let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-			label: Some("Render Pipeline"),
+			label: Some("render pipeline"),
 			layout: Some(&render_pipeline_layout),
 			vertex: wgpu::VertexState {
 				module: &shader,
@@ -306,7 +306,7 @@ impl State {
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-			label: Some("Render Encoder"),
+			label: Some("render encoder"),
 		});
 
 		{
