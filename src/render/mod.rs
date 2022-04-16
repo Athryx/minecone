@@ -1,23 +1,19 @@
-use std::time::Duration;
-
 use nalgebra::{Point3, Vector3, Scale3, UnitQuaternion, Unit};
-use winit::{
-	window::Window,
-	event::WindowEvent,
-};
+use winit::window::Window;
+
 use wgpu::util::DeviceExt;
 
 use texture::Texture;
-use camera::{Camera, CameraController};
+use camera::Camera;
 use model::{Vertex, ModelVertex, InstanceRaw, Instance, Model, ModelInstance, DrawModel};
 
-mod camera;
-mod model;
-mod texture;
+pub mod camera;
+pub mod model;
+pub mod texture;
 
 
 #[derive(Debug)]
-pub struct State {
+pub struct Renderer {
 	surface: wgpu::Surface,
 	device: wgpu::Device,
 	queue: wgpu::Queue,
@@ -25,14 +21,14 @@ pub struct State {
 	render_pipeline: wgpu::RenderPipeline,
 	depth_texture: Texture,
 	camera: Camera,
-	camera_controler: CameraController,
+	camera_modified: bool,
 	camera_buffer: wgpu::Buffer,
 	camera_bind_group: wgpu::BindGroup,
 	model_instance: ModelInstance,
 	pub size: winit::dpi::PhysicalSize<u32>,
 }
 
-impl State {
+impl Renderer {
 	// Creating some of the wgpu types requires async code
 	pub async fn new(window: &Window) -> Self {
 		let size = window.inner_size();
@@ -95,7 +91,6 @@ impl State {
 		// render pipeline
 		let camera = Camera::new(Point3::new(0.0, 1.0, 2.0), Point3::new(0.0, 0.0, 0.0), config.width as f32 / config.height as f32);
 		let camera_uniform = camera.get_camera_uniform();
-		let camera_controler = CameraController::new(0.6);
 
 		let camera_buffer = device.create_buffer_init(
 			&wgpu::util::BufferInitDescriptor {
@@ -193,6 +188,7 @@ impl State {
 			multiview: None,
 		});
 
+		// TODO: don't do this here
 		let model = Model::load_from_file("cube.obj", &device, &queue, &texture_bind_group_layout).unwrap();
 
 		const INSTANCES_PER_ROW: u32 = 10;
@@ -229,7 +225,7 @@ impl State {
 			render_pipeline,
 			depth_texture,
 			camera,
-			camera_controler,
+			camera_modified: false,
 			camera_buffer,
 			camera_bind_group,
 			model_instance,
@@ -247,18 +243,28 @@ impl State {
 		}
 	}
 
-	// returns true if the event has been processed, so we can skip processing the event in the rest of the code
-	pub fn input(&mut self, event: &WindowEvent) -> bool {
-		self.camera_controler.process_events(event)
+	pub fn get_camera_mut(&mut self) -> &mut Camera {
+		self.camera_modified = true;
+		&mut self.camera
 	}
 
-	pub fn update(&mut self, time_delta: Duration) {
-		self.camera_controler.update_camera(&mut self.camera, time_delta);
-		self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.get_camera_uniform()]));
-	}
+	pub fn render(&mut self) {
+		if self.camera_modified {
+			self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.get_camera_uniform()]));
+			self.camera_modified = false;
+		}
 
-	pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-		let output = self.surface.get_current_texture()?;
+		let output = loop {
+			match self.surface.get_current_texture() {
+				Ok(texture) => break texture,
+				// reconfigure surface if lost
+				Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
+				Err(wgpu::SurfaceError::OutOfMemory) => {
+					panic!("out of memory");
+				}
+				Err(e) => warn!("{:?}", e),
+			}
+		};
 		let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -298,7 +304,5 @@ impl State {
 
 		self.queue.submit(std::iter::once(encoder.finish()));
 		output.present();
-
-		Ok(())
 	}
 }
