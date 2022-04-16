@@ -15,9 +15,6 @@ use winit::{
 
 mod assets;
 mod render;
-mod texture;
-mod camera;
-mod model;
 
 pub async fn run() {
 	let event_loop = EventLoop::new();

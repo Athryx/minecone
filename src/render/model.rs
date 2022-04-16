@@ -4,7 +4,7 @@ use anyhow::Result;
 use wgpu::util::DeviceExt;
 use nalgebra::{Vector3, Scale3, Matrix4, UnitQuaternion};
 
-use crate::texture::Texture;
+use super::texture::Texture;
 use crate::assets::loader;
 
 pub trait Vertex {

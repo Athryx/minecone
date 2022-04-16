@@ -7,9 +7,13 @@ use winit::{
 };
 use wgpu::util::DeviceExt;
 
-use crate::texture::Texture;
-use crate::camera::{Camera, CameraController};
-use crate::model::{Vertex, ModelVertex, InstanceRaw, Instance, Model, ModelInstance, DrawModel};
+use texture::Texture;
+use camera::{Camera, CameraController};
+use model::{Vertex, ModelVertex, InstanceRaw, Instance, Model, ModelInstance, DrawModel};
+
+mod camera;
+mod model;
+mod texture;
 
 
 #[derive(Debug)]
