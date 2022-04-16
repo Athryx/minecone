@@ -4,7 +4,9 @@ use winit::window::WindowId;
 use winit::{window::Window, event::*, event_loop::ControlFlow};
 
 use crate::render::Renderer;
-use crate::camera_controller::CameraController;
+use camera_controller::CameraController;
+
+mod camera_controller;
 
 pub struct Game {
 	window_id: WindowId,

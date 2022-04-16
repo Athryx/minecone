@@ -13,8 +13,6 @@ use winit::{
 mod assets;
 mod render;
 mod game;
-mod world;
-mod camera_controller;
 
 pub fn run() {
 	let event_loop = EventLoop::new();
