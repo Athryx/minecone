@@ -1,4 +1,4 @@
-use std::mem;
+use std::{mem, path::Path};
 
 use anyhow::Result;
 use wgpu::util::DeviceExt;
@@ -58,10 +58,12 @@ pub struct Model {
 }
 
 impl Model {
-	pub fn load_from_file(
-		file_name: &str,
+	pub fn load_from_file<T: AsRef<Path>>(
+		file_name: T,
 		context: RenderContext,
 	) -> Result<Self> {
+		let file_name = file_name.as_ref();
+
 		let (obj_meshes, obj_materials) = loader().load_obj(file_name)?;
 
 		let mut materials = Vec::with_capacity(obj_materials.len());

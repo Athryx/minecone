@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, path::Path};
 
 use image::{DynamicImage, GenericImageView};
 use anyhow::*;
@@ -14,8 +14,8 @@ pub struct Texture {
 }
 
 impl Texture {
-	pub fn from_file(
-		file_name: &str,
+	pub fn from_file<T: AsRef<Path>>(
+		file_name: T,
 		label: &str,
 		context: RenderContext,
 	) -> Result<Self> {
