@@ -14,7 +14,9 @@ mod assets;
 mod render;
 mod game;
 
-pub fn run() {
+fn main() {
+	pretty_env_logger::init();
+
 	let event_loop = EventLoop::new();
 	let window = WindowBuilder::new()
 		.with_title("Mineclone")
@@ -26,9 +28,4 @@ pub fn run() {
 	event_loop.run(move |event, _, control_flow| {
 		*control_flow = game.event_update(event);
 	});
-}
-
-fn main() {
-	pretty_env_logger::init();
-	run()
 }
