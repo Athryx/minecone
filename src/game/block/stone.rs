@@ -13,6 +13,10 @@ impl Block for Stone {
 		"stone"
 	}
 
+	fn block_type(&self) -> BlockType {
+	    BlockType::Stone
+	}
+
 	fn model_path(&self) -> &Path {
 		"blocks/stone.obj".as_ref()
 	}

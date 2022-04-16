@@ -4,7 +4,7 @@ use anyhow::Result;
 use wgpu::util::DeviceExt;
 use nalgebra::{Vector3, Scale3, Matrix4, UnitQuaternion};
 
-use super::texture::Texture;
+use super::{RenderContext, texture::Texture};
 use crate::assets::loader;
 
 pub trait Vertex {
@@ -60,19 +60,17 @@ pub struct Model {
 impl Model {
 	pub fn load_from_file(
 		file_name: &str,
-		device: &wgpu::Device,
-		queue: &wgpu::Queue,
-		layout: &wgpu::BindGroupLayout,
+		context: RenderContext,
 	) -> Result<Self> {
 		let (obj_meshes, obj_materials) = loader().load_obj(file_name)?;
 
 		let mut materials = Vec::with_capacity(obj_materials.len());
 		for mat in obj_materials.into_iter() {
-			let diffuse_texture = Texture::from_file(device, queue, &mat.diffuse_texture, &mat.diffuse_texture)?;
-			let bind_group = device.create_bind_group(
+			let diffuse_texture = Texture::from_file(&mat.diffuse_texture, &mat.diffuse_texture, context)?;
+			let bind_group = context.device.create_bind_group(
 				&wgpu::BindGroupDescriptor {
 					label: Some(&format!("{} bind group", &mat.diffuse_texture)),
-					layout,
+					layout: context.texture_bind_layout,
 					entries: &[
 						wgpu::BindGroupEntry {
 							binding: 0,
@@ -114,7 +112,7 @@ impl Model {
 				})
 				.collect::<Vec<_>>();
 
-			let vertex_buffer = device.create_buffer_init(
+			let vertex_buffer = context.device.create_buffer_init(
 				&wgpu::util::BufferInitDescriptor {
 					label: Some(&format!("{} vertex buffer", &mesh.name)),
 					contents: bytemuck::cast_slice(&vertices),
@@ -122,7 +120,7 @@ impl Model {
 				}
 			);
 
-			let index_buffer = device.create_buffer_init(
+			let index_buffer = context.device.create_buffer_init(
 				&wgpu::util::BufferInitDescriptor {
 					label: Some(&format!("{} index buffer", &mesh.name)),
 					contents: bytemuck::cast_slice(&mesh.mesh.indices),
@@ -199,9 +197,9 @@ pub struct ModelInstance {
 }
 
 impl ModelInstance {
-	pub fn new(device: &wgpu::Device, model: Model, instances: Vec<Instance>) -> Self {
+	pub fn new(model: Model, instances: Vec<Instance>, context: RenderContext) -> Self {
 		let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-		let instance_buffer = device.create_buffer_init(
+		let instance_buffer = context.device.create_buffer_init(
 			&wgpu::util::BufferInitDescriptor {
 				label: Some("instance buffer"),
 				contents: bytemuck::cast_slice(&instance_data),
@@ -217,8 +215,8 @@ impl ModelInstance {
 	}
 
 	// ceates a model instance which draws 1 model with no changes
-	pub fn identity(device: &wgpu::Device, model: Model) -> Self {
-		Self::new(device, model, vec![Instance::default()])
+	pub fn identity(model: Model, context: RenderContext) -> Self {
+		Self::new(model, vec![Instance::default()], context)
 	}
 
 	pub fn num_instances(&self) -> u32 {

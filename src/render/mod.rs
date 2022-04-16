@@ -19,6 +19,7 @@ pub struct Renderer {
 	queue: wgpu::Queue,
 	config: wgpu::SurfaceConfiguration,
 	render_pipeline: wgpu::RenderPipeline,
+	texture_bind_layout: wgpu::BindGroupLayout,
 	depth_texture: Texture,
 	camera: Camera,
 	camera_modified: bool,
@@ -26,6 +27,16 @@ pub struct Renderer {
 	camera_bind_group: wgpu::BindGroup,
 	model_instance: ModelInstance,
 	pub size: winit::dpi::PhysicalSize<u32>,
+}
+
+// holds references to important wgpu rendering objects
+// to be passed to constructors of other rendering related objects
+// which simplifies the amount of arguments thet have to be passed to them
+#[derive(Debug, Clone, Copy)]
+pub struct RenderContext<'a> {
+	device: &'a wgpu::Device,
+	queue: &'a wgpu::Queue,
+	texture_bind_layout: &'a wgpu::BindGroupLayout,
 }
 
 impl Renderer {
@@ -85,6 +96,12 @@ impl Renderer {
 				],
 			}
 		);
+
+		let render_context = RenderContext {
+			queue: &queue,
+			device: &device,
+			texture_bind_layout: &texture_bind_group_layout,
+		};
 
 		let depth_texture = Texture::create_depth_texture(&device, &config, "depth texture");
 
@@ -189,7 +206,7 @@ impl Renderer {
 		});
 
 		// TODO: don't do this here
-		let model = Model::load_from_file("cube.obj", &device, &queue, &texture_bind_group_layout).unwrap();
+		let model = Model::load_from_file("cube.obj", render_context).unwrap();
 
 		const INSTANCES_PER_ROW: u32 = 10;
 		const SPACE_BETWEEN: f32 = 3.0;
@@ -215,7 +232,7 @@ impl Renderer {
 			})
 		}).collect::<Vec<_>>();
 
-		let model_instance = ModelInstance::new(&device, model, instances);
+		let model_instance = ModelInstance::new(model, instances, render_context);
 
 		Self {
 			surface,
@@ -223,6 +240,7 @@ impl Renderer {
 			queue,
 			config,
 			render_pipeline,
+			texture_bind_layout: texture_bind_group_layout,
 			depth_texture,
 			camera,
 			camera_modified: false,
@@ -230,6 +248,14 @@ impl Renderer {
 			camera_bind_group,
 			model_instance,
 			size,
+		}
+	}
+
+	pub fn context(&self) -> RenderContext {
+		RenderContext {
+			device: &self.device,
+			queue: &self.queue,
+			texture_bind_layout: &self.texture_bind_layout,
 		}
 	}
 

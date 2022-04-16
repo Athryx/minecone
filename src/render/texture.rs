@@ -4,6 +4,7 @@ use image::{DynamicImage, GenericImageView};
 use anyhow::*;
 
 use crate::assets::loader;
+use super::RenderContext;
 
 #[derive(Debug)]
 pub struct Texture {
@@ -14,30 +15,27 @@ pub struct Texture {
 
 impl Texture {
 	pub fn from_file(
-		device: &wgpu::Device,
-		queue: &wgpu::Queue,
 		file_name: &str,
 		label: &str,
+		context: RenderContext,
 	) -> Result<Self> {
 		let bytes = loader().load_bytes(file_name)?;
-		Self::from_bytes(device, queue, &bytes, label)
+		Self::from_bytes(&bytes, label, context)
 	}
 
 	pub fn from_bytes(
-		device: &wgpu::Device,
-		queue: &wgpu::Queue,
 		bytes: &[u8],
 		label: &str,
+		context: RenderContext,
 	) -> Result<Self> {
 		let image = image::load_from_memory(bytes)?;
-		Self::from_image(device, queue, &image, label)
+		Self::from_image(&image, label, context)
 	}
 
 	pub fn from_image(
-		device: &wgpu::Device,
-		queue: &wgpu::Queue,
 		image: &DynamicImage,
 		label: &str,
+		context: RenderContext,
 	) -> Result<Self> {
 		let dimensions = image.dimensions();
 		let rgba = image.to_rgba8();
@@ -48,7 +46,7 @@ impl Texture {
 			depth_or_array_layers: 1,
 		};
 
-		let texture = device.create_texture(
+		let texture = context.device.create_texture(
 			&wgpu::TextureDescriptor {
 				label: Some(label),
 				// All textures are stored as 3D, we represent our 2D texture
@@ -65,7 +63,7 @@ impl Texture {
 			}
 		);
 
-		queue.write_texture(
+		context.queue.write_texture(
 			// where to copy the pixel data to
 			wgpu::ImageCopyTexture {
 				texture: &texture,
@@ -85,7 +83,7 @@ impl Texture {
 		);
 
 		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-		let sampler = device.create_sampler(
+		let sampler = context.device.create_sampler(
 			&wgpu::SamplerDescriptor {
 				address_mode_u: wgpu::AddressMode::ClampToEdge,
 				address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -106,6 +104,7 @@ impl Texture {
 
 	pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+	// this one is only used in the render code so a RenderContext is not needed
 	pub fn create_depth_texture(
 		device: &wgpu::Device,
 		config: &wgpu::SurfaceConfiguration,
