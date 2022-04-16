@@ -1,7 +1,6 @@
-use glm::{Vec3, Mat4};
-use nalgebra::Point3;
+use nalgebra::{Vector3, Matrix4, Point3};
 
-const TO_GPU_MATRIX: Mat4 = Mat4::new(
+const TO_GPU_MATRIX: Matrix4<f32> = Matrix4::new(
 	1.0, 0.0, 0.0, 0.0,
 	0.0, 1.0, 0.0, 0.0,
 	0.0, 0.0, 0.5, 0.0,
@@ -13,7 +12,7 @@ pub struct Camera {
 	// these need to be public because camera controller modifies these
 	pub position: Point3<f32>,
 	pub look_at: Point3<f32>,
-	pub up: Vec3,
+	pub up: Vector3<f32>,
 	aspect_ratio: f32,
 	fovy: f32,
 	znear: f32,
@@ -25,7 +24,7 @@ impl Camera {
 		Self {
 			position,
 			look_at,
-			up: *Vec3::y_axis(),
+			up: *Vector3::y_axis(),
 			aspect_ratio,
 			fovy: 45.0,
 			znear: 0.1,
@@ -33,9 +32,9 @@ impl Camera {
 		}
 	}
 
-	pub fn get_camera_matrix(&self) -> Mat4 {
-		let view = Mat4::look_at_rh(&self.position, &self.look_at, &self.up);
-		let proj = Mat4::new_perspective(self.aspect_ratio, self.fovy, self.znear, self.zfar);
+	pub fn get_camera_matrix(&self) -> Matrix4<f32> {
+		let view = Matrix4::look_at_rh(&self.position, &self.look_at, &self.up);
+		let proj = Matrix4::new_perspective(self.aspect_ratio, self.fovy, self.znear, self.zfar);
 
 		return TO_GPU_MATRIX * proj * view;
 	}

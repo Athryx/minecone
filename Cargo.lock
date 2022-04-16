@@ -62,6 +62,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "array-init"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6945cc5422176fc5e602e590c2878d2c2acd9a4fe20a4baa7c28022521698ec6"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -766,13 +772,13 @@ name = "mineclone"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "array-init",
  "bytemuck",
  "fs_extra",
  "glob",
  "image",
  "log",
  "nalgebra",
- "nalgebra-glm",
  "pollster",
  "pretty_env_logger",
  "tobj",
@@ -860,18 +866,6 @@ dependencies = [
  "num-traits",
  "simba",
  "typenum",
-]
-
-[[package]]
-name = "nalgebra-glm"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de5ec1e116731f6a4e86ee76162ea1e33a30d793820942b08849aa7e4fed0d91"
-dependencies = [
- "approx",
- "nalgebra",
- "num-traits",
- "simba",
 ]
 
 [[package]]

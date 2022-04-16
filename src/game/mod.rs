@@ -5,8 +5,13 @@ use winit::{window::Window, event::*, event_loop::ControlFlow};
 
 use crate::render::Renderer;
 use camera_controller::CameraController;
+use world::World;
 
 mod camera_controller;
+mod entity;
+mod block;
+mod chunk;
+mod world;
 
 pub struct Game {
 	window_id: WindowId,
@@ -14,6 +19,7 @@ pub struct Game {
 	camera_controller: CameraController,
 	frame_time: Duration,
 	last_update_time: Instant,
+	world: World,
 }
 
 impl Game {
@@ -25,6 +31,7 @@ impl Game {
 			camera_controller: CameraController::new(2.0),
 			frame_time,
 			last_update_time: Instant::now() - frame_time,
+			world: World::new_test().expect("could not load the test world"),
 		}
 	}
 

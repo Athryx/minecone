@@ -3,8 +3,6 @@
 #[macro_use]
 extern crate log;
 
-extern crate nalgebra_glm as glm;
-
 use winit::{
 	event_loop::EventLoop,
 	window::WindowBuilder,
@@ -13,6 +11,7 @@ use winit::{
 mod assets;
 mod render;
 mod game;
+mod util;
 
 fn main() {
 	pretty_env_logger::init();
