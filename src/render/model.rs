@@ -14,9 +14,9 @@ pub trait Vertex {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ModelVertex {
-	position: [f32; 3],
-	tex_coords: [f32; 2],
-	normal: [f32; 3],
+	pub position: [f32; 3],
+	pub tex_coords: [f32; 2],
+	pub normal: [f32; 3],
 }
 
 impl ModelVertex {
@@ -36,23 +36,90 @@ impl Vertex for ModelVertex {
 
 #[derive(Debug)]
 pub struct Mesh {
-	pub name: String,
-	pub vertex_buffer: wgpu::Buffer,
-	pub index_buffer: wgpu::Buffer,
-	pub num_elements: u32,
-	pub material_index: usize,
+	name: String,
+	vertex_buffer: wgpu::Buffer,
+	index_buffer: wgpu::Buffer,
+	num_elements: u32,
+	material_index: usize,
+}
+
+impl Mesh {
+	pub fn new(
+		name: &str,
+		vertices: &[ModelVertex],
+		indices: &[u32],
+		material_index: usize,
+		context: RenderContext,
+	) -> Self {
+		let vertex_buffer = context.device.create_buffer_init(
+			&wgpu::util::BufferInitDescriptor {
+				label: Some(&format!("{} vertex buffer", name)),
+				contents: bytemuck::cast_slice(vertices),
+				usage: wgpu::BufferUsages::VERTEX,
+			}
+		);
+
+		let index_buffer = context.device.create_buffer_init(
+			&wgpu::util::BufferInitDescriptor {
+				label: Some(&format!("{} index buffer", name)),
+				contents: bytemuck::cast_slice(indices),
+				usage: wgpu::BufferUsages::INDEX,
+			}
+		);
+
+		Self {
+			name: name.to_owned(),
+			vertex_buffer,
+			index_buffer,
+			num_elements: indices.len().try_into().unwrap(),
+			material_index,
+		}
+	}
 }
 
 #[derive(Debug)]
 pub struct Material {
-	pub name: String,
-	pub diffuse_texture: Texture,
-	pub bind_group: wgpu::BindGroup,
+	name: String,
+	diffuse_texture: Texture,
+	bind_group: wgpu::BindGroup,
+}
+
+impl Material {
+	// for now, file name is file name of diffuse texture
+	pub fn load_from_file<T: AsRef<Path>>(
+		file_name: T,
+		name: &str,
+		context: RenderContext,
+	) -> Result<Self> {
+		let diffuse_texture = Texture::from_file(file_name, &format!("{} diffuse texture", name), context)?;
+
+		let bind_group = context.device.create_bind_group(
+			&wgpu::BindGroupDescriptor {
+				label: Some(&format!("{} bind group", name)),
+				layout: context.texture_bind_layout,
+				entries: &[
+					wgpu::BindGroupEntry {
+						binding: 0,
+						resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+					},
+					wgpu::BindGroupEntry {
+						binding: 1,
+						resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+					},
+				],
+			}
+		);
+
+		Ok(Self {
+			name: name.to_owned(),
+			diffuse_texture,
+			bind_group,
+		})
+	}
 }
 
 #[derive(Debug)]
 pub struct Model {
-	// temp
 	pub meshes: Vec<Mesh>,
 	pub materials: Vec<Material>,
 }
@@ -68,29 +135,7 @@ impl Model {
 
 		let mut materials = Vec::with_capacity(obj_materials.len());
 		for mat in obj_materials.into_iter() {
-			let diffuse_texture = Texture::from_file(&mat.diffuse_texture, &mat.diffuse_texture, context)?;
-			let bind_group = context.device.create_bind_group(
-				&wgpu::BindGroupDescriptor {
-					label: Some(&format!("{} bind group", &mat.diffuse_texture)),
-					layout: context.texture_bind_layout,
-					entries: &[
-						wgpu::BindGroupEntry {
-							binding: 0,
-							resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-						},
-						wgpu::BindGroupEntry {
-							binding: 1,
-							resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-						},
-					],
-				}
-			);
-
-			materials.push(Material {
-				name: mat.diffuse_texture,
-				diffuse_texture,
-				bind_group,
-			});
+			materials.push(Material::load_from_file(&mat.diffuse_texture, &mat.diffuse_texture, context)?);
 		}
 
 		let mut meshes = Vec::with_capacity(obj_meshes.len());
@@ -114,35 +159,40 @@ impl Model {
 				})
 				.collect::<Vec<_>>();
 
-			let vertex_buffer = context.device.create_buffer_init(
-				&wgpu::util::BufferInitDescriptor {
-					label: Some(&format!("{} vertex buffer", &mesh.name)),
-					contents: bytemuck::cast_slice(&vertices),
-					usage: wgpu::BufferUsages::VERTEX,
-				}
-			);
-
-			let index_buffer = context.device.create_buffer_init(
-				&wgpu::util::BufferInitDescriptor {
-					label: Some(&format!("{} index buffer", &mesh.name)),
-					contents: bytemuck::cast_slice(&mesh.mesh.indices),
-					usage: wgpu::BufferUsages::INDEX,
-				}
-			);
-
-			meshes.push(Mesh {
-				name: mesh.name,
-				vertex_buffer,
-				index_buffer,
-				num_elements: mesh.mesh.indices.len().try_into().unwrap(),
-				material_index: mesh.mesh.material_id.unwrap_or(0),
-			});
+			meshes.push(Mesh::new(
+				&mesh.name,
+				&vertices,
+				&mesh.mesh.indices,
+				mesh.mesh.material_id.unwrap_or(0),
+				context
+			));
 		}
 
 		Ok(Model {
 			meshes,
 			materials,
 		})
+	}
+
+	pub fn new(
+		name: &str,
+		vertices: &[ModelVertex],
+		indices: &[u32],
+		material: Material,
+		context: RenderContext,
+	) -> Self {
+		let mesh = Mesh::new(
+			name,
+			vertices,
+			indices,
+			0,
+			context,
+		);
+
+		Self {
+			meshes: vec![mesh],
+			materials: vec![material],
+		}
 	}
 }
 

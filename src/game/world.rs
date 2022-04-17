@@ -9,7 +9,8 @@ use anyhow::Result;
 
 use super::{
 	chunk::{Chunk, ChunkData},
-	entity::Entity
+	entity::Entity,
+	block::BlockFace,
 };
 
 // max size of world in chunks
@@ -22,6 +23,7 @@ struct LoadedChunks {
 	load_distance: Vector3<u64>,
 	// TODO: in the future maybe make a 3d queue data structure that doesn't have any layers of indirection to be more cache friendly
 	chunks: VecDeque<VecDeque<VecDeque<Chunk>>>,
+	world_mesh: Vec<BlockFace>,
 }
 
 impl LoadedChunks {
@@ -30,11 +32,14 @@ impl LoadedChunks {
 		let mut chunks = VecDeque::new();
 		chunks.push_back(VecDeque::new());
 		chunks[0].push_back(VecDeque::new());
-		chunks[0][0].push_back(Chunk::new_test());
+		let chunk = Chunk::new_test();
+		let faces = chunk.generate_block_faces();
+		chunks[0][0].push_back(chunk);
 
 		LoadedChunks {
 			load_distance: Vector3::new(1, 1, 1),
 			chunks,
+			world_mesh: faces,
 		}
 	}
 }
@@ -77,5 +82,10 @@ impl World {
 			cached_chunks: HashMap::new(),
 			file,
 		})
+	}
+
+	// TODO: once multiplayer support take in player id
+	pub fn world_mesh(&self) -> &[BlockFace] {
+		&self.chunks[0].world_mesh
 	}
 }

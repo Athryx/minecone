@@ -3,8 +3,10 @@ use std::ops::Deref;
 use nalgebra::{Vector2, Vector3};
 
 pub use crate::render::model::Model;
-use crate::util::{vec2_getx, vec2_gety};
+use crate::{util::{vec2_getx, vec2_gety}, render::model::ModelVertex};
 
+mod air;
+pub use air::*;
 mod stone;
 pub use stone::*;
 
@@ -12,8 +14,8 @@ pub type BlockPos = Vector3<f64>;
 pub type TexPos = Vector2<f64>;
 
 // the width and height of the texture map in number of blocks
-const TEX_MAP_BLOCK_WIDTH: f64 = 1.0;
-const TEX_MAP_BLOCK_HEIGHT: f64 = 1.0;
+const TEX_MAP_BLOCK_WIDTH: f64 = 32.0;
+const TEX_MAP_BLOCK_HEIGHT: f64 = 32.0;
 
 // scales the input tex_pos where 1 unit is 1 block to be in the correct coordinates for the gpu
 const fn scale_tex_pos(tex_pos: TexPos) -> TexPos {
@@ -35,10 +37,20 @@ impl BlockVertex {
 	}
 }
 
+impl Into<ModelVertex> for BlockVertex {
+	fn into(self) -> ModelVertex {
+		ModelVertex {
+			position: [self.position.x as f32, self.position.y as f32, self.position.z as f32],
+			tex_coords: [self.tex_coord.x as f32, self.tex_coord.y as f32],
+			normal: [0.0, 0.0, 0.0],
+		}
+	}
+}
+
 // the front of the face is the side from which the vertexes are going in a clockwise direction
 // all the BlockVertexes must also be coplanar
 #[derive(Debug, Clone, Copy)]
-pub struct BlockFace([BlockVertex; 4]);
+pub struct BlockFace(pub [BlockVertex; 4]);
 
 impl BlockFace {
 	const fn new_xpos(segment: TextureSegment) -> Self {
@@ -93,6 +105,11 @@ impl BlockFace {
 			BlockVertex::new(BlockPos::new(1.0, 0.0, 0.0), segment.br()),
 			BlockVertex::new(BlockPos::new(1.0, 1.0, 0.0), segment.tr()),
 		])
+	}
+
+	// returns the indicies of the block model to be used for the index buffer
+	pub const fn indicies() -> &'static [u32] {
+		&[0, 1, 2, 2, 3, 0]
 	}
 }
 
@@ -223,12 +240,19 @@ impl BlockModel {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockType {
+	Air,
 	Stone,
 }
 
 pub trait Block {
 	fn name(&self) -> &str;
 	fn block_type(&self) -> BlockType;
+	// panics if the block is air (or some other block without a blockmodel)
 	fn model(&self) -> &'static BlockModel;
+
+	fn is_air(&self) -> bool {
+		self.block_type() == BlockType::Air
+	}
 }

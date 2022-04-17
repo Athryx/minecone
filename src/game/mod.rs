@@ -4,8 +4,10 @@ use winit::window::WindowId;
 use winit::{window::Window, event::*, event_loop::ControlFlow};
 
 use crate::render::Renderer;
+use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
 use world::World;
+use block::BlockFace;
 
 mod camera_controller;
 mod entity;
@@ -19,19 +21,50 @@ pub struct Game {
 	camera_controller: CameraController,
 	frame_time: Duration,
 	last_update_time: Instant,
+	texture_map: Material,
 	world: World,
+	world_mesh: Mesh,
 }
 
 impl Game {
-	pub fn new(framerate: u64, window: & Window) -> Self {
+	pub fn new(framerate: u64, window: &Window) -> Self {
 		let frame_time = Duration::from_micros(1_000_000 / framerate);
+
+		let renderer = pollster::block_on(Renderer::new(window));
+
+		let texture_map = Material::load_from_file("texture-map.png", "texture map", renderer.context())
+			.expect("could not load texture map");
+
+		let world = World::new_test().expect("could not load the test world");
+
+		let mut vertexes = Vec::new();
+		let mut indexes = Vec::new();
+
+		let mut current_index = 0;
+		for block_face in world.world_mesh() {
+			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
+			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
+			current_index += 4;
+		}
+
+		let mesh = Mesh::new(
+			"world mesh",
+			&vertexes,
+			&indexes,
+			0,
+			renderer.context()
+		);
+
+
 		Game {
 			window_id: window.id(),
-			renderer: pollster::block_on(Renderer::new(window)),
+			renderer,
 			camera_controller: CameraController::new(2.0),
 			frame_time,
 			last_update_time: Instant::now() - frame_time,
+			texture_map,
 			world: World::new_test().expect("could not load the test world"),
+			world_mesh: mesh,
 		}
 	}
 

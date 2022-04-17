@@ -31,7 +31,7 @@ impl Chunk {
 	}
 
 	// TODO: implement this, for now it is just a test which renders every block face
-	pub fn render_block_faces(&self) -> Vec<BlockFace> {
+	pub fn generate_block_faces(&self) -> Vec<BlockFace> {
 		let mut out = Vec::new();
 
 		for (x, yblocks) in self.blocks.iter().enumerate() {
