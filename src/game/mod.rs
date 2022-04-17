@@ -1,4 +1,6 @@
 use std::time::{Instant, Duration};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use winit::window::WindowId;
 use winit::{window::Window, event::*, event_loop::ControlFlow};
@@ -22,7 +24,7 @@ pub struct Game {
 	frame_time: Duration,
 	last_update_time: Instant,
 	texture_map: Material,
-	world: World,
+	world: Rc<RefCell<World>>,
 	world_mesh: Mesh,
 }
 
@@ -41,7 +43,7 @@ impl Game {
 		let mut indexes = Vec::new();
 
 		let mut current_index = 0;
-		for block_face in world.world_mesh() {
+		for block_face in world.borrow().world_mesh() {
 			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
 			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
 			current_index += 4;
@@ -55,7 +57,6 @@ impl Game {
 			renderer.context()
 		);
 
-
 		Game {
 			window_id: window.id(),
 			renderer,
@@ -63,7 +64,7 @@ impl Game {
 			frame_time,
 			last_update_time: Instant::now() - frame_time,
 			texture_map,
-			world: World::new_test().expect("could not load the test world"),
+			world,
 			world_mesh: mesh,
 		}
 	}
@@ -78,7 +79,7 @@ impl Game {
 
 		if time_delta > self.frame_time {
 			self.camera_controller.update_camera(self.renderer.get_camera_mut(), time_delta);
-			self.renderer.render();
+			self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
 			self.last_update_time = current_time;
 		}
 		ControlFlow::WaitUntil(self.last_update_time + self.frame_time)
@@ -87,7 +88,7 @@ impl Game {
 	pub fn event_update(&mut self, event: Event<()>) -> ControlFlow {
 		match event {
 			Event::RedrawRequested(window_id) if window_id == self.window_id => {
-				self.renderer.render();
+				self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
 				self.physics_update()
 			},
 			Event::WindowEvent {

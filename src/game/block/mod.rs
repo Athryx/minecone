@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use nalgebra::{Vector2, Vector3};
+use nalgebra::{Vector2, Vector3, Translation3, Point3};
 
 pub use crate::render::model::Model;
 use crate::{util::{vec2_getx, vec2_gety}, render::model::ModelVertex};
@@ -34,6 +34,10 @@ impl BlockVertex {
 			position,
 			tex_coord,
 		}
+	}
+
+	pub fn translate(&mut self, translation: &Translation3<f64>) {
+		self.position += translation.vector
 	}
 }
 
@@ -109,7 +113,14 @@ impl BlockFace {
 
 	// returns the indicies of the block model to be used for the index buffer
 	pub const fn indicies() -> &'static [u32] {
-		&[0, 1, 2, 2, 3, 0]
+		&[0, 2, 1, 2, 0, 3]
+	}
+
+	pub fn translate(&mut self, translation: &Translation3<f64>) {
+		self.0[0].translate(translation);
+		self.0[1].translate(translation);
+		self.0[2].translate(translation);
+		self.0[3].translate(translation);
 	}
 }
 
@@ -237,6 +248,15 @@ impl BlockModel {
 			zpos: BlockFace::new_zpos(zpos_face.as_rotated_segment()),
 			zneg: BlockFace::new_zneg(zneg_face.as_rotated_segment()),
 		}
+	}
+
+	pub fn translate(&mut self, translation: &Translation3<f64>) {
+		self.xpos.translate(translation);
+		self.xneg.translate(translation);
+		self.ypos.translate(translation);
+		self.yneg.translate(translation);
+		self.zpos.translate(translation);
+		self.zneg.translate(translation);
 	}
 }
 

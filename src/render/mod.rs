@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use texture::Texture;
 use camera::Camera;
-use model::{Vertex, ModelVertex, InstanceRaw, Instance, Model, ModelInstance, DrawModel};
+use model::*;
 
 pub mod camera;
 pub mod model;
@@ -25,7 +25,6 @@ pub struct Renderer {
 	camera_modified: bool,
 	camera_buffer: wgpu::Buffer,
 	camera_bind_group: wgpu::BindGroup,
-	model_instance: ModelInstance,
 	pub size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -166,7 +165,7 @@ impl Renderer {
 				entry_point: "vs_main",
 				buffers: &[
 					ModelVertex::desc(),
-					InstanceRaw::desc(),
+					//InstanceRaw::desc(),
 				],
 			},
 			fragment: Some(wgpu::FragmentState {
@@ -205,35 +204,6 @@ impl Renderer {
 			multiview: None,
 		});
 
-		// TODO: don't do this here
-		let model = Model::load_from_file("cube.obj", render_context).unwrap();
-
-		const INSTANCES_PER_ROW: u32 = 10;
-		const SPACE_BETWEEN: f32 = 3.0;
-		let instances = (0..INSTANCES_PER_ROW).flat_map(|z| {
-			(0..INSTANCES_PER_ROW).map(move |x| {
-				let x = SPACE_BETWEEN * (x as f32 - INSTANCES_PER_ROW as f32 / 2.0);
-				let z = SPACE_BETWEEN * (z as f32 - INSTANCES_PER_ROW as f32 / 2.0);
-				let translation = Vector3::new(x, 0.0, z);
-
-				let rotation = if translation == Vector3::zeros() {
-					UnitQuaternion::identity()
-				} else {
-					UnitQuaternion::from_axis_angle(&Unit::new_normalize(translation), std::f32::consts::FRAC_PI_4)
-				};
-
-				let scale = Scale3::identity();
-
-				Instance {
-					translation,
-					rotation,
-					scale,
-				}
-			})
-		}).collect::<Vec<_>>();
-
-		let model_instance = ModelInstance::new(model, instances, render_context);
-
 		Self {
 			surface,
 			device,
@@ -246,7 +216,6 @@ impl Renderer {
 			camera_modified: false,
 			camera_buffer,
 			camera_bind_group,
-			model_instance,
 			size,
 		}
 	}
@@ -274,7 +243,7 @@ impl Renderer {
 		&mut self.camera
 	}
 
-	pub fn render(&mut self) {
+	pub fn render(&mut self, models: &[(&Mesh, &Material)]) {
 		if self.camera_modified {
 			self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.get_camera_uniform()]));
 			self.camera_modified = false;
@@ -325,7 +294,9 @@ impl Renderer {
 
 			render_pass.set_pipeline(&self.render_pipeline);
 
-			render_pass.draw_model_instanced(&self.model_instance, &self.camera_bind_group);
+			for (mesh, material) in models.iter() {
+				render_pass.draw_mesh(mesh, material, &self.camera_bind_group);
+			}
 		}
 
 		self.queue.submit(std::iter::once(encoder.finish()));
