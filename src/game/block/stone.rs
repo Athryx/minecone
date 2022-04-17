@@ -1,5 +1,11 @@
 use super::*;
 
+static STONE_MODEL: BlockModel = BlockModel::from_texture(
+	TextureFace::Up(
+		TextureSegment::from_tl(TexPos::new(0.0, 0.0))
+	)
+);
+
 pub struct Stone {}
 
 impl Stone {
@@ -17,7 +23,7 @@ impl Block for Stone {
 	    BlockType::Stone
 	}
 
-	fn model_path(&self) -> &Path {
-		"blocks/stone.obj".as_ref()
+	fn model(&self) -> &'static BlockModel {
+		&STONE_MODEL
 	}
 }

@@ -1,4 +1,5 @@
 #![feature(once_cell)]
+#![feature(const_fn_floating_point_arithmetic)]
 
 #[macro_use]
 extern crate log;
