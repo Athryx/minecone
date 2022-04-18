@@ -60,7 +60,7 @@ impl Game {
 		Game {
 			window_id: window.id(),
 			renderer,
-			camera_controller: CameraController::new(2.0, 5.0, 1.5),
+			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 			frame_time,
 			last_update_time: Instant::now() - frame_time,
 			texture_map,

@@ -4,13 +4,13 @@ use nalgebra::{Vector2, Vector3, Translation3, Point3};
 
 pub use crate::render::model::Model;
 use crate::{util::{vec2_getx, vec2_gety}, render::model::ModelVertex};
+use crate::prelude::*;
 
 mod air;
 pub use air::*;
 mod stone;
 pub use stone::*;
 
-pub type BlockPos = Vector3<f64>;
 pub type TexPos = Vector2<f64>;
 
 // the width and height of the texture map in number of blocks
@@ -24,12 +24,12 @@ const fn scale_tex_pos(tex_pos: TexPos) -> TexPos {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BlockVertex {
-	position: BlockPos,
+	position: Position,
 	tex_coord: TexPos,
 }
 
 impl BlockVertex {
-	pub const fn new(position: BlockPos, tex_coord: TexPos) -> Self {
+	pub const fn new(position: Position, tex_coord: TexPos) -> Self {
 		Self {
 			position,
 			tex_coord,
@@ -59,55 +59,55 @@ pub struct BlockFace(pub [BlockVertex; 4]);
 impl BlockFace {
 	const fn new_xpos(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(BlockPos::new(1.0, 1.0, 0.0), segment.tl()),
-			BlockVertex::new(BlockPos::new(1.0, 0.0, 0.0), segment.bl()),
-			BlockVertex::new(BlockPos::new(1.0, 0.0, 1.0), segment.br()),
-			BlockVertex::new(BlockPos::new(1.0, 1.0, 1.0), segment.tr()),
+			BlockVertex::new(Position::new(1.0, 1.0, 0.0), segment.tl()),
+			BlockVertex::new(Position::new(1.0, 0.0, 0.0), segment.bl()),
+			BlockVertex::new(Position::new(1.0, 0.0, 1.0), segment.br()),
+			BlockVertex::new(Position::new(1.0, 1.0, 1.0), segment.tr()),
 		])
 	}
 
 	const fn new_xneg(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(BlockPos::new(0.0, 1.0, 1.0), segment.tl()),
-			BlockVertex::new(BlockPos::new(0.0, 0.0, 1.0), segment.bl()),
-			BlockVertex::new(BlockPos::new(0.0, 0.0, 0.0), segment.br()),
-			BlockVertex::new(BlockPos::new(0.0, 1.0, 0.0), segment.tr()),
+			BlockVertex::new(Position::new(0.0, 1.0, 1.0), segment.tl()),
+			BlockVertex::new(Position::new(0.0, 0.0, 1.0), segment.bl()),
+			BlockVertex::new(Position::new(0.0, 0.0, 0.0), segment.br()),
+			BlockVertex::new(Position::new(0.0, 1.0, 0.0), segment.tr()),
 		])
 	}
 
 	const fn new_ypos(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(BlockPos::new(0.0, 1.0, 1.0), segment.tl()),
-			BlockVertex::new(BlockPos::new(0.0, 1.0, 0.0), segment.bl()),
-			BlockVertex::new(BlockPos::new(1.0, 1.0, 0.0), segment.br()),
-			BlockVertex::new(BlockPos::new(1.0, 1.0, 1.0), segment.tr()),
+			BlockVertex::new(Position::new(0.0, 1.0, 1.0), segment.tl()),
+			BlockVertex::new(Position::new(0.0, 1.0, 0.0), segment.bl()),
+			BlockVertex::new(Position::new(1.0, 1.0, 0.0), segment.br()),
+			BlockVertex::new(Position::new(1.0, 1.0, 1.0), segment.tr()),
 		])
 	}
 
 	const fn new_yneg(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(BlockPos::new(0.0, 0.0, 0.0), segment.tl()),
-			BlockVertex::new(BlockPos::new(0.0, 0.0, 1.0), segment.bl()),
-			BlockVertex::new(BlockPos::new(1.0, 0.0, 1.0), segment.br()),
-			BlockVertex::new(BlockPos::new(1.0, 0.0, 0.0), segment.tr()),
+			BlockVertex::new(Position::new(0.0, 0.0, 0.0), segment.tl()),
+			BlockVertex::new(Position::new(0.0, 0.0, 1.0), segment.bl()),
+			BlockVertex::new(Position::new(1.0, 0.0, 1.0), segment.br()),
+			BlockVertex::new(Position::new(1.0, 0.0, 0.0), segment.tr()),
 		])
 	}
 
 	const fn new_zpos(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(BlockPos::new(1.0, 1.0, 1.0), segment.tl()),
-			BlockVertex::new(BlockPos::new(1.0, 0.0, 1.0), segment.bl()),
-			BlockVertex::new(BlockPos::new(0.0, 0.0, 1.0), segment.br()),
-			BlockVertex::new(BlockPos::new(0.0, 1.0, 1.0), segment.tr()),
+			BlockVertex::new(Position::new(1.0, 1.0, 1.0), segment.tl()),
+			BlockVertex::new(Position::new(1.0, 0.0, 1.0), segment.bl()),
+			BlockVertex::new(Position::new(0.0, 0.0, 1.0), segment.br()),
+			BlockVertex::new(Position::new(0.0, 1.0, 1.0), segment.tr()),
 		])
 	}
 
 	const fn new_zneg(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(BlockPos::new(0.0, 1.0, 0.0), segment.tl()),
-			BlockVertex::new(BlockPos::new(0.0, 0.0, 0.0), segment.bl()),
-			BlockVertex::new(BlockPos::new(1.0, 0.0, 0.0), segment.br()),
-			BlockVertex::new(BlockPos::new(1.0, 1.0, 0.0), segment.tr()),
+			BlockVertex::new(Position::new(0.0, 1.0, 0.0), segment.tl()),
+			BlockVertex::new(Position::new(0.0, 0.0, 0.0), segment.bl()),
+			BlockVertex::new(Position::new(1.0, 0.0, 0.0), segment.br()),
+			BlockVertex::new(Position::new(1.0, 1.0, 0.0), segment.tr()),
 		])
 	}
 

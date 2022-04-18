@@ -13,6 +13,7 @@ mod assets;
 mod render;
 mod game;
 mod util;
+mod prelude;
 
 fn main() {
 	pretty_env_logger::init();

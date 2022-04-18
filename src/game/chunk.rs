@@ -3,23 +3,22 @@ use std::cell::RefCell;
 
 use nalgebra::{Vector3, Translation3};
 
-use super::block::{Block, BlockPos, BlockFace};
+use super::block::{Block, BlockFace};
 // TEMP
 use super::block::Stone;
 use super::entity::Entity;
 use super::world::World;
+use crate::prelude::*;
 
 use crate::array3d_init;
 
 const CHUNK_SIZE: usize = 32;
 
-pub type ChunkPos = Vector3<u64>;
-
 pub struct Chunk {
 	world: Rc<RefCell<World>>,
 	// position of back bottom left corner of chunk in block coordinates
 	// increases in incraments of 32
-	position: BlockPos,
+	position: Position,
 	// coordinates of chunk, increases in incraments of 1
 	chunk_position: ChunkPos,
 	blocks: [[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
@@ -31,7 +30,7 @@ impl Chunk {
 	pub fn new_test(world: Rc<RefCell<World>>) -> Self {
 		Self {
 			world,
-			position: BlockPos::new(0.0, 0.0, 0.0),
+			position: Position::new(0.0, 0.0, 0.0),
 			chunk_position: ChunkPos::new(0, 0, 0),
 			blocks: array3d_init!(Stone::new()),
 			air_map: array3d_init!(false),

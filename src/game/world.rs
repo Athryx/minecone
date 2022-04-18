@@ -10,10 +10,11 @@ use nalgebra::Vector3;
 use anyhow::Result;
 
 use super::{
-	chunk::{Chunk, ChunkData, ChunkPos},
+	chunk::{Chunk, ChunkData},
 	entity::Entity,
 	block::BlockFace,
 };
+use crate::prelude::*;
 
 // max size of world in chunks
 // 16,384 meters in each x and y direction

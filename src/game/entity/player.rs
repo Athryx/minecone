@@ -1,9 +1,10 @@
 use nalgebra::Vector3;
 
 use super::*;
+use crate::prelude::*;
 
 pub struct Player {
-	position: Vector3<f64>,
+	position: Position,
 }
 
 impl Player {

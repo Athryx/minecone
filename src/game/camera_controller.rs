@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use winit::event::*;
-use nalgebra::{Unit, Matrix, Vector4, Vector3};
+use nalgebra::{Unit, Matrix, Vector4};
 
 use crate::render::camera::Camera;
 
@@ -120,8 +120,6 @@ impl CameraController {
 		let right_norm = right.normalize();
 		let camera_up_norm = camera_up.normalize();
 
-		let forward_mag = forward.magnitude();
-
 
 		let distance_moved = time_delta.as_millis() as f32 * 
 			if self.sprint_pressed {
@@ -153,15 +151,20 @@ impl CameraController {
 		let angle_rotated = time_delta.as_millis() as f32 * self.rotation_speed / 1000.0;
 
 		let mut forward4 = Vector4::new(forward.x, forward.y, forward.z, 0.0);
-		let mag_dot = forward_norm.dot(&up);
 
-		if self.rotate_up_pressed && mag_dot < 0.95 {
+		if self.rotate_up_pressed {
 			let verticle_rotation = Matrix::from_axis_angle(&Unit::new_normalize(right_norm), angle_rotated);
-			forward4 = verticle_rotation * forward4;
+			let forward_temp = verticle_rotation * forward4;
+			if forward_temp.xyz().normalize().dot(&up) < 0.95 {
+				forward4 = forward_temp;
+			}
 		}
-		if self.rotate_down_pressed && mag_dot > -0.95 {
+		if self.rotate_down_pressed {
 			let verticle_rotation = Matrix::from_axis_angle(&Unit::new_normalize(right_norm), -angle_rotated);
-			forward4 = verticle_rotation * forward4;
+			let forward_temp = verticle_rotation * forward4;
+			if forward_temp.xyz().normalize().dot(&up) > -0.95 {
+				forward4 = forward_temp;
+			}
 		}
 
 		if self.rotate_left_pressed {
@@ -173,7 +176,7 @@ impl CameraController {
 			forward4 = horizantal_rotation * forward4;
 		}
 
-		let forward = Vector3::new(forward4.x, forward4.y, forward4.z);
+		let forward = forward4.xyz();
 		camera.look_at = camera.position + forward;
 	}
 }
