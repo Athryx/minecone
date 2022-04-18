@@ -1,26 +1,47 @@
 use std::time::Duration;
 
 use winit::event::*;
+use nalgebra::{Unit, Matrix, Vector4, Vector3};
 
 use crate::render::camera::Camera;
 
 #[derive(Debug)]
 pub struct CameraController {
+	// speed and fast_speed in meters / second
 	speed: f32,
-	is_forward_pressed: bool,
-	is_backward_pressed: bool,
-	is_left_pressed: bool,
-	is_right_pressed: bool,
+	fast_speed: f32,
+	// radians / second
+	rotation_speed: f32,
+	forward_pressed: bool,
+	backward_pressed: bool,
+	left_pressed: bool,
+	right_pressed: bool,
+	up_pressed: bool,
+	down_pressed: bool,
+	rotate_up_pressed: bool,
+	rotate_down_pressed: bool,
+	rotate_left_pressed: bool,
+	rotate_right_pressed: bool,
+	sprint_pressed: bool,
 }
 
 impl CameraController {
-	pub fn new(speed: f32) -> Self {
+	pub fn new(speed: f32, fast_speed: f32, rotation_speed: f32) -> Self {
 		Self {
 			speed,
-			is_forward_pressed: false,
-			is_backward_pressed: false,
-			is_left_pressed: false,
-			is_right_pressed: false,
+			fast_speed,
+			rotation_speed,
+			forward_pressed: false,
+			backward_pressed: false,
+			left_pressed: false,
+			right_pressed: false,
+			up_pressed: false,
+			down_pressed: false,
+			rotate_up_pressed: false,
+			rotate_down_pressed: false,
+			rotate_left_pressed: false,
+			rotate_right_pressed: false,
+			sprint_pressed: false,
 		}
 	}
 
@@ -36,22 +57,50 @@ impl CameraController {
 			} => {
 				let is_pressed = *state == ElementState::Pressed;
 				match keycode {
-					VirtualKeyCode::W | VirtualKeyCode::Up => {
-						self.is_forward_pressed = is_pressed;
+					VirtualKeyCode::W => {
+						self.forward_pressed = is_pressed;
 						true
-					}
-					VirtualKeyCode::A | VirtualKeyCode::Left => {
-						self.is_left_pressed = is_pressed;
+					},
+					VirtualKeyCode::S => {
+						self.backward_pressed = is_pressed;
 						true
-					}
-					VirtualKeyCode::S | VirtualKeyCode::Down => {
-						self.is_backward_pressed = is_pressed;
+					},
+					VirtualKeyCode::A => {
+						self.left_pressed = is_pressed;
 						true
-					}
-					VirtualKeyCode::D | VirtualKeyCode::Right => {
-						self.is_right_pressed = is_pressed;
+					},
+					VirtualKeyCode::D => {
+						self.right_pressed = is_pressed;
 						true
-					}
+					},
+					VirtualKeyCode::Space => {
+						self.up_pressed = is_pressed;
+						true
+					},
+					VirtualKeyCode::LAlt | VirtualKeyCode::RAlt => {
+						self.down_pressed = is_pressed;
+						true
+					},
+					VirtualKeyCode::Up => {
+						self.rotate_up_pressed = is_pressed;
+						true
+					},
+					VirtualKeyCode::Down => {
+						self.rotate_down_pressed = is_pressed;
+						true
+					},
+					VirtualKeyCode::Left => {
+						self.rotate_left_pressed = is_pressed;
+						true
+					},
+					VirtualKeyCode::Right => {
+						self.rotate_right_pressed = is_pressed;
+						true
+					},
+					VirtualKeyCode::LShift | VirtualKeyCode::RShift => {
+						self.sprint_pressed = is_pressed;
+						true
+					},
 					_ => false,
 				}
 			}
@@ -61,34 +110,70 @@ impl CameraController {
 
 	pub fn update_camera(&self, camera: &mut Camera, time_delta: Duration) {
 		let forward = camera.look_at - camera.position;
+		let up = camera.up;
+		// sideways is pointing right
+		let right = forward.cross(&up);
+		// up from the perspective of the camera
+		let camera_up = right.cross(&forward);
+
 		let forward_norm = forward.normalize();
+		let right_norm = right.normalize();
+		let camera_up_norm = camera_up.normalize();
+
 		let forward_mag = forward.magnitude();
 
-		let distance_moved = time_delta.as_millis() as f32 * self.speed / 1000.0;
 
-		// Prevents glitching when camera gets too close to the
-		// center of the scene.
-		if self.is_forward_pressed && forward_mag > distance_moved {
+		let distance_moved = time_delta.as_millis() as f32 * 
+			if self.sprint_pressed {
+				self.fast_speed
+			} else {
+				self.speed
+			} / 1000.0;
+
+		if self.forward_pressed {
 			camera.position += forward_norm * distance_moved;
 		}
-		if self.is_backward_pressed {
+		if self.backward_pressed {
 			camera.position -= forward_norm * distance_moved;
 		}
-
-		let right = forward_norm.cross(&camera.up);
-
-		// Redo radius calc in case the fowrard/backward is pressed.
-		let forward = camera.look_at - camera.position;
-		let forward_mag = forward.magnitude();
-
-		if self.is_right_pressed {
-			// Rescale the distance between the target and eye so 
-			// that it doesn't change. The eye therefore still 
-			// lies on the circle made by the target and eye.
-			camera.position = camera.look_at - (forward + right * distance_moved).normalize() * forward_mag;
+		if self.left_pressed {
+			camera.position -= right_norm * distance_moved;
 		}
-		if self.is_left_pressed {
-			camera.position = camera.look_at - (forward - right * distance_moved).normalize() * forward_mag;
+		if self.right_pressed {
+			camera.position += right_norm * distance_moved;
 		}
+		if self.up_pressed {
+			camera.position += camera_up_norm * distance_moved;
+		}
+		if self.down_pressed {
+			camera.position -= camera_up_norm * distance_moved;
+		}
+
+
+		let angle_rotated = time_delta.as_millis() as f32 * self.rotation_speed / 1000.0;
+
+		let mut forward4 = Vector4::new(forward.x, forward.y, forward.z, 0.0);
+		let mag_dot = forward_norm.dot(&up);
+
+		if self.rotate_up_pressed && mag_dot < 0.95 {
+			let verticle_rotation = Matrix::from_axis_angle(&Unit::new_normalize(right_norm), angle_rotated);
+			forward4 = verticle_rotation * forward4;
+		}
+		if self.rotate_down_pressed && mag_dot > -0.95 {
+			let verticle_rotation = Matrix::from_axis_angle(&Unit::new_normalize(right_norm), -angle_rotated);
+			forward4 = verticle_rotation * forward4;
+		}
+
+		if self.rotate_left_pressed {
+			let horizantal_rotation = Matrix::from_axis_angle(&Unit::new_normalize(up), angle_rotated);
+			forward4 = horizantal_rotation * forward4;
+		}
+		if self.rotate_right_pressed {
+			let horizantal_rotation = Matrix::from_axis_angle(&Unit::new_normalize(up), -angle_rotated);
+			forward4 = horizantal_rotation * forward4;
+		}
+
+		let forward = Vector3::new(forward4.x, forward4.y, forward4.z);
+		camera.look_at = camera.position + forward;
 	}
 }

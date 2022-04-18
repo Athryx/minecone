@@ -10,7 +10,7 @@ use nalgebra::Vector3;
 use anyhow::Result;
 
 use super::{
-	chunk::{Chunk, ChunkData},
+	chunk::{Chunk, ChunkData, ChunkPos},
 	entity::Entity,
 	block::BlockFace,
 };
@@ -24,6 +24,8 @@ struct LoadedChunks {
 	world: Rc<RefCell<World>>,
 	// Load distance in x, y, and z directions
 	load_distance: Vector3<u64>,
+	// coordinates of bottom back left of loaded chunk group
+	position: ChunkPos,
 	// TODO: in the future maybe make a 3d queue data structure that doesn't have any layers of indirection to be more cache friendly
 	chunks: VecDeque<VecDeque<VecDeque<Chunk>>>,
 	world_mesh: Vec<BlockFace>,
@@ -42,6 +44,7 @@ impl LoadedChunks {
 		LoadedChunks {
 			world,
 			load_distance: Vector3::new(1, 1, 1),
+			position: ChunkPos::new(0, 0, 0),
 			chunks,
 			world_mesh: faces,
 		}
