@@ -25,5 +25,5 @@ pub const fn vec3_gety<T: Copy>(vector: Vector3<T>) -> T {
 }
 
 pub const fn vec3_getz<T: Copy>(vector: Vector3<T>) -> T {
-	vector.data.0[0][1]
+	vector.data.0[0][2]
 }

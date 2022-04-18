@@ -3,7 +3,7 @@ use std::ops::Deref;
 use nalgebra::{Vector2, Vector3, Translation3, Point3};
 
 pub use crate::render::model::Model;
-use crate::{util::{vec2_getx, vec2_gety}, render::model::ModelVertex};
+use crate::{util::{vec2_getx, vec2_gety, vec3_getx, vec3_gety, vec3_getz}, render::model::ModelVertex};
 use crate::prelude::*;
 
 mod air;
@@ -17,6 +17,14 @@ pub type TexPos = Vector2<f64>;
 const TEX_MAP_BLOCK_WIDTH: f64 = 32.0;
 const TEX_MAP_BLOCK_HEIGHT: f64 = 32.0;
 
+// the amount of overlap between block verticies to stop rendering artifacts from occuring
+const BLOCK_MODEL_OVERLAP: f64 = 0.01;
+
+// offset from the edge of the texture that the texture view will be
+// this causes the texture segment to be smaller than the actual texture by a little bit
+// to avoid rendering artifacts
+const TEX_OFFSET: f64 = 0.001;
+
 // scales the input tex_pos where 1 unit is 1 block to be in the correct coordinates for the gpu
 const fn scale_tex_pos(tex_pos: TexPos) -> TexPos {
 	TexPos::new(vec2_getx(tex_pos) / TEX_MAP_BLOCK_WIDTH, vec2_gety(tex_pos) / TEX_MAP_BLOCK_HEIGHT)
@@ -29,9 +37,32 @@ pub struct BlockVertex {
 }
 
 impl BlockVertex {
-	pub const fn new(position: Position, tex_coord: TexPos) -> Self {
+	// adds in the block overlap automatically
+	pub const fn new_cube(position: Position, tex_coord: TexPos) -> Self {
+		let mut x = vec3_getx(position);
+		let mut y = vec3_gety(position);
+		let mut z = vec3_getz(position);
+
+		if x > 0.5 {
+			x += BLOCK_MODEL_OVERLAP;
+		} else {
+			x -= BLOCK_MODEL_OVERLAP;
+		}
+
+		if y > 0.5 {
+			y += BLOCK_MODEL_OVERLAP;
+		} else {
+			y -= BLOCK_MODEL_OVERLAP;
+		}
+
+		if z > 0.5 {
+			z += BLOCK_MODEL_OVERLAP;
+		} else {
+			z -= BLOCK_MODEL_OVERLAP;
+		}
+
 		Self {
-			position,
+			position: Position::new(x, y, z),
 			tex_coord,
 		}
 	}
@@ -59,55 +90,55 @@ pub struct BlockFace(pub [BlockVertex; 4]);
 impl BlockFace {
 	const fn new_xpos(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(Position::new(1.0, 1.0, 0.0), segment.tl()),
-			BlockVertex::new(Position::new(1.0, 0.0, 0.0), segment.bl()),
-			BlockVertex::new(Position::new(1.0, 0.0, 1.0), segment.br()),
-			BlockVertex::new(Position::new(1.0, 1.0, 1.0), segment.tr()),
+			BlockVertex::new_cube(Position::new(1.0, 1.0, 0.0), segment.tl()),
+			BlockVertex::new_cube(Position::new(1.0, 0.0, 0.0), segment.bl()),
+			BlockVertex::new_cube(Position::new(1.0, 0.0, 1.0), segment.br()),
+			BlockVertex::new_cube(Position::new(1.0, 1.0, 1.0), segment.tr()),
 		])
 	}
 
 	const fn new_xneg(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(Position::new(0.0, 1.0, 1.0), segment.tl()),
-			BlockVertex::new(Position::new(0.0, 0.0, 1.0), segment.bl()),
-			BlockVertex::new(Position::new(0.0, 0.0, 0.0), segment.br()),
-			BlockVertex::new(Position::new(0.0, 1.0, 0.0), segment.tr()),
+			BlockVertex::new_cube(Position::new(0.0, 1.0, 1.0), segment.tl()),
+			BlockVertex::new_cube(Position::new(0.0, 0.0, 1.0), segment.bl()),
+			BlockVertex::new_cube(Position::new(0.0, 0.0, 0.0), segment.br()),
+			BlockVertex::new_cube(Position::new(0.0, 1.0, 0.0), segment.tr()),
 		])
 	}
 
 	const fn new_ypos(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(Position::new(0.0, 1.0, 1.0), segment.tl()),
-			BlockVertex::new(Position::new(0.0, 1.0, 0.0), segment.bl()),
-			BlockVertex::new(Position::new(1.0, 1.0, 0.0), segment.br()),
-			BlockVertex::new(Position::new(1.0, 1.0, 1.0), segment.tr()),
+			BlockVertex::new_cube(Position::new(0.0, 1.0, 1.0), segment.tl()),
+			BlockVertex::new_cube(Position::new(0.0, 1.0, 0.0), segment.bl()),
+			BlockVertex::new_cube(Position::new(1.0, 1.0, 0.0), segment.br()),
+			BlockVertex::new_cube(Position::new(1.0, 1.0, 1.0), segment.tr()),
 		])
 	}
 
 	const fn new_yneg(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(Position::new(0.0, 0.0, 0.0), segment.tl()),
-			BlockVertex::new(Position::new(0.0, 0.0, 1.0), segment.bl()),
-			BlockVertex::new(Position::new(1.0, 0.0, 1.0), segment.br()),
-			BlockVertex::new(Position::new(1.0, 0.0, 0.0), segment.tr()),
+			BlockVertex::new_cube(Position::new(0.0, 0.0, 0.0), segment.tl()),
+			BlockVertex::new_cube(Position::new(0.0, 0.0, 1.0), segment.bl()),
+			BlockVertex::new_cube(Position::new(1.0, 0.0, 1.0), segment.br()),
+			BlockVertex::new_cube(Position::new(1.0, 0.0, 0.0), segment.tr()),
 		])
 	}
 
 	const fn new_zpos(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(Position::new(1.0, 1.0, 1.0), segment.tl()),
-			BlockVertex::new(Position::new(1.0, 0.0, 1.0), segment.bl()),
-			BlockVertex::new(Position::new(0.0, 0.0, 1.0), segment.br()),
-			BlockVertex::new(Position::new(0.0, 1.0, 1.0), segment.tr()),
+			BlockVertex::new_cube(Position::new(1.0, 1.0, 1.0), segment.tl()),
+			BlockVertex::new_cube(Position::new(1.0, 0.0, 1.0), segment.bl()),
+			BlockVertex::new_cube(Position::new(0.0, 0.0, 1.0), segment.br()),
+			BlockVertex::new_cube(Position::new(0.0, 1.0, 1.0), segment.tr()),
 		])
 	}
 
 	const fn new_zneg(segment: TextureSegment) -> Self {
 		Self([
-			BlockVertex::new(Position::new(0.0, 1.0, 0.0), segment.tl()),
-			BlockVertex::new(Position::new(0.0, 0.0, 0.0), segment.bl()),
-			BlockVertex::new(Position::new(1.0, 0.0, 0.0), segment.br()),
-			BlockVertex::new(Position::new(1.0, 1.0, 0.0), segment.tr()),
+			BlockVertex::new_cube(Position::new(0.0, 1.0, 0.0), segment.tl()),
+			BlockVertex::new_cube(Position::new(0.0, 0.0, 0.0), segment.bl()),
+			BlockVertex::new_cube(Position::new(1.0, 0.0, 0.0), segment.br()),
+			BlockVertex::new_cube(Position::new(1.0, 1.0, 0.0), segment.tr()),
 		])
 	}
 
@@ -133,17 +164,21 @@ struct TextureSegment {
 
 impl TextureSegment {
 	const fn new(top_left: TexPos, bottom_right: TexPos) -> Self {
+		let tlx = vec2_getx(top_left) + TEX_OFFSET;
+		let tly = vec2_gety(top_left) + TEX_OFFSET;
+
+		let brx = vec2_getx(bottom_right) - TEX_OFFSET;
+		let bry = vec2_gety(bottom_right) - TEX_OFFSET;
+
 		Self {
-			top_left: scale_tex_pos(top_left),
-			bottom_right: scale_tex_pos(bottom_right),
+			top_left: scale_tex_pos(TexPos::new(tlx, tly)),
+			bottom_right: scale_tex_pos(TexPos::new(brx, bry)),
 		}
 	}
 
 	const fn from_tl(top_left: TexPos) -> Self {
-		Self {
-			top_left: scale_tex_pos(top_left),
-			bottom_right: scale_tex_pos(TexPos::new(vec2_getx(top_left) + 1.0, vec2_gety(top_left) + 1.0)),
-		}
+		let bottom_right = TexPos::new(vec2_getx(top_left) + 1.0, vec2_gety(top_left) + 1.0);
+		Self::new(top_left, bottom_right)
 	}
 
 	const fn tl(&self) -> TexPos {

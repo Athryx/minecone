@@ -5,7 +5,7 @@ use nalgebra::{Vector3, Translation3};
 
 use super::block::{Block, BlockFace};
 // TEMP
-use super::block::Stone;
+use super::block::{Air, Stone};
 use super::entity::Entity;
 use super::world::World;
 use crate::prelude::*;
@@ -27,13 +27,29 @@ pub struct Chunk {
 
 impl Chunk {
 	// TEMP
-	pub fn new_test(world: Rc<RefCell<World>>) -> Self {
+	pub fn new_test(world: Rc<RefCell<World>>, position: ChunkPos) -> Self {
+		let x = (position.x * CHUNK_SIZE as i64) as f64;
+		let y = (position.y * CHUNK_SIZE as i64) as f64;
+		let z = (position.z * CHUNK_SIZE as i64) as f64;
 		Self {
 			world,
-			position: Position::new(0.0, 0.0, 0.0),
-			chunk_position: ChunkPos::new(0, 0, 0),
+			position: Position::new(x, y, z),
+			chunk_position: position,
 			blocks: array3d_init!(Stone::new()),
 			air_map: array3d_init!(false),
+		}
+	}
+
+	pub fn new_test_air(world: Rc<RefCell<World>>, position: ChunkPos) -> Self {
+		let x = (position.x * CHUNK_SIZE as i64) as f64;
+		let y = (position.y * CHUNK_SIZE as i64) as f64;
+		let z = (position.z * CHUNK_SIZE as i64) as f64;
+		Self {
+			world,
+			position: Position::new(x, y, z),
+			chunk_position: position,
+			blocks: array3d_init!(Air::new()),
+			air_map: array3d_init!(true),
 		}
 	}
 
@@ -43,8 +59,16 @@ impl Chunk {
 		for (x, yblocks) in self.blocks.iter().enumerate() {
 			for (y, zblocks) in yblocks.iter().enumerate() {
 				for (z, block) in zblocks.iter().enumerate() {
+					if block.is_air() {
+						continue;
+					}
+
 					let mut model = block.model().clone();
-					model.translate(&Translation3::new(x as f64, y as f64, z as f64));
+					model.translate(&Translation3::new(
+						self.position.x + x as f64,
+						self.position.y + y as f64,
+						self.position.z + z as f64
+					));
 
 					if x == 0 || self.air_map[x - 1][y][z] {
 						out.push(model.xneg);

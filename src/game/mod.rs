@@ -10,17 +10,18 @@ use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
 use world::World;
 use block::BlockFace;
+use worldgen::WorldGenerator;
 
 mod camera_controller;
 mod entity;
 mod block;
 mod chunk;
 mod world;
+mod worldgen;
 
 pub struct Game {
 	window_id: WindowId,
 	renderer: Renderer,
-	camera_controller: CameraController,
 	frame_time: Duration,
 	last_update_time: Instant,
 	texture_map: Material,
@@ -57,10 +58,9 @@ impl Game {
 			renderer.context()
 		);
 
-		Game {
+		Self {
 			window_id: window.id(),
 			renderer,
-			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 			frame_time,
 			last_update_time: Instant::now() - frame_time,
 			texture_map,
@@ -70,7 +70,7 @@ impl Game {
 	}
 
 	pub fn input(&mut self, event: &WindowEvent) {
-		self.camera_controller.process_event(&event);
+		self.world.borrow_mut().camera_controller.process_event(&event);
 	}
 
 	pub fn physics_update(&mut self) -> ControlFlow {
@@ -78,7 +78,7 @@ impl Game {
 		let time_delta = current_time - self.last_update_time;
 
 		if time_delta > self.frame_time {
-			self.camera_controller.update_camera(self.renderer.get_camera_mut(), time_delta);
+			self.world.borrow_mut().camera_controller.update_camera(self.renderer.get_camera_mut(), time_delta);
 			self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
 			self.last_update_time = current_time;
 		}

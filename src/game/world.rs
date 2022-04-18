@@ -3,9 +3,10 @@ use std::{
 	fs::{File, OpenOptions},
 	path::Path,
 	rc::{Rc, Weak},
-	cell::RefCell,
+	cell::RefCell, time::Duration,
 };
 
+use winit::event::WindowEvent;
 use nalgebra::Vector3;
 use anyhow::Result;
 
@@ -13,6 +14,8 @@ use super::{
 	chunk::{Chunk, ChunkData},
 	entity::Entity,
 	block::BlockFace,
+	worldgen::WorldGenerator,
+	camera_controller::CameraController,
 };
 use crate::prelude::*;
 
@@ -38,7 +41,7 @@ impl LoadedChunks {
 		let mut chunks = VecDeque::new();
 		chunks.push_back(VecDeque::new());
 		chunks[0].push_back(VecDeque::new());
-		let chunk = Chunk::new_test(world.clone());
+		let chunk = Chunk::new_test(world.clone(), ChunkPos::new(0, 0, 0));
 		let faces = chunk.generate_block_faces();
 		chunks[0][0].push_back(chunk);
 
@@ -59,8 +62,10 @@ pub struct World {
 	entities: Vec<Box<dyn Entity>>,
 	// the key is the chunk position
 	cached_chunks: HashMap<Vector3<u64>, ChunkData>,
+	world_generator: WorldGenerator,
 	// backing file of the world
 	file: File,
+	pub camera_controller: CameraController,
 }
 
 impl World {
@@ -75,7 +80,9 @@ impl World {
 			chunks: Vec::new(),
 			entities: Vec::new(),
 			cached_chunks: HashMap::new(),
+			world_generator: WorldGenerator::new(),
 			file,
+			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 		})))
 	}
 
@@ -91,7 +98,9 @@ impl World {
 			chunks: Vec::new(),
 			entities: Vec::new(),
 			cached_chunks: HashMap::new(),
+			world_generator: WorldGenerator::new(),
 			file,
+			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 		}));
 
 		out.borrow_mut().chunks.push(LoadedChunks::new_test(out.clone()));
