@@ -18,12 +18,12 @@ const TEX_MAP_BLOCK_WIDTH: f64 = 32.0;
 const TEX_MAP_BLOCK_HEIGHT: f64 = 32.0;
 
 // the amount of overlap between block verticies to stop rendering artifacts from occuring
-const BLOCK_MODEL_OVERLAP: f64 = 0.01;
+const BLOCK_MODEL_OVERLAP: f64 = 0.00001;
 
 // offset from the edge of the texture that the texture view will be
 // this causes the texture segment to be smaller than the actual texture by a little bit
 // to avoid rendering artifacts
-const TEX_OFFSET: f64 = 0.001;
+const TEX_OFFSET: f64 = 0.0001;
 
 // scales the input tex_pos where 1 unit is 1 block to be in the correct coordinates for the gpu
 const fn scale_tex_pos(tex_pos: TexPos) -> TexPos {
