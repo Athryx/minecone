@@ -3,83 +3,64 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use winit::window::WindowId;
-use winit::{window::Window, event::*, event_loop::ControlFlow};
+use winit::{
+	window::Window,
+	event::*,
+	event_loop::ControlFlow,
+	dpi::PhysicalSize,
+};
 
-use crate::render::Renderer;
-use crate::render::model::{Mesh, Material, ModelVertex};
-use camera_controller::CameraController;
 use world::World;
-use block::BlockFace;
-use worldgen::WorldGenerator;
+use client::Client;
 
-mod camera_controller;
+mod client;
 mod entity;
 mod block;
 mod chunk;
 mod world;
 mod worldgen;
 
+// Game is in charge of calling frame_update and physics_update on the correct intervals
+// and dispatching input events
 pub struct Game {
 	window_id: WindowId,
-	renderer: Renderer,
 	frame_time: Duration,
 	last_update_time: Instant,
-	texture_map: Material,
 	world: Rc<RefCell<World>>,
-	world_mesh: Mesh,
+	client: Client,
 }
 
 impl Game {
 	pub fn new(framerate: u64, window: &Window) -> Self {
 		let frame_time = Duration::from_micros(1_000_000 / framerate);
 
-		let renderer = pollster::block_on(Renderer::new(window));
-
-		let texture_map = Material::load_from_file("texture-map.png", "texture map", renderer.context())
-			.expect("could not load texture map");
-
 		let world = World::new_test().expect("could not load the test world");
-
-		let mut vertexes = Vec::new();
-		let mut indexes = Vec::new();
-
-		let mut current_index = 0;
-		for block_face in world.borrow().world_mesh() {
-			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
-			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
-			current_index += 4;
-		}
-
-		let mesh = Mesh::new(
-			"world mesh",
-			&vertexes,
-			&indexes,
-			0,
-			renderer.context()
-		);
+		let client = Client::new(window, world.clone());
 
 		Self {
 			window_id: window.id(),
-			renderer,
 			frame_time,
 			last_update_time: Instant::now() - frame_time,
-			texture_map,
 			world,
-			world_mesh: mesh,
+			client,
 		}
 	}
 
 	pub fn input(&mut self, event: &WindowEvent) {
-		self.world.borrow_mut().camera_controller.process_event(&event);
+		self.client.input(event);
 	}
 
-	pub fn physics_update(&mut self) -> ControlFlow {
+	// TODO: implement correctly, with redrawing every so often
+	pub fn frame_update(&mut self, new_window_size: Option<PhysicalSize<u32>>) {
+		self.client.frame_update(new_window_size);
+	}
+
+	pub fn try_physics_update(&mut self) -> ControlFlow {
 		let current_time = Instant::now();
 		let time_delta = current_time - self.last_update_time;
 
 		if time_delta > self.frame_time {
-			self.world.borrow_mut().camera_controller.update_camera(self.renderer.get_camera_mut(), time_delta);
-			self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
+			self.client.physics_update(time_delta);
 			self.last_update_time = current_time;
 		}
 		ControlFlow::WaitUntil(self.last_update_time + self.frame_time)
@@ -88,8 +69,8 @@ impl Game {
 	pub fn event_update(&mut self, event: Event<()>) -> ControlFlow {
 		match event {
 			Event::RedrawRequested(window_id) if window_id == self.window_id => {
-				self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
-				self.physics_update()
+				self.frame_update(None);
+				self.try_physics_update()
 			},
 			Event::WindowEvent {
 				ref event,
@@ -106,13 +87,13 @@ impl Game {
 							},
 						..
 					} => return ControlFlow::Exit,
-					WindowEvent::Resized(new_size) => self.renderer.resize(*new_size),
-					WindowEvent::ScaleFactorChanged { new_inner_size, .. } => self.renderer.resize(**new_inner_size),
+					WindowEvent::Resized(new_size) => self.frame_update(Some(*new_size)),
+					WindowEvent::ScaleFactorChanged { new_inner_size, .. } => self.frame_update(Some(**new_inner_size)),
 					_ => self.input(event),
 				}
-				self.physics_update()
+				self.try_physics_update()
 			},
-			_ => self.physics_update(),
+			_ => self.try_physics_update(),
 		}
 	}
 }

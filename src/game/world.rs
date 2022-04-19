@@ -15,7 +15,6 @@ use super::{
 	entity::Entity,
 	block::BlockFace,
 	worldgen::WorldGenerator,
-	camera_controller::CameraController,
 };
 use crate::prelude::*;
 
@@ -65,7 +64,6 @@ pub struct World {
 	world_generator: WorldGenerator,
 	// backing file of the world
 	file: File,
-	pub camera_controller: CameraController,
 }
 
 impl World {
@@ -82,7 +80,6 @@ impl World {
 			cached_chunks: HashMap::new(),
 			world_generator: WorldGenerator::new(),
 			file,
-			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 		})))
 	}
 
@@ -100,7 +97,6 @@ impl World {
 			cached_chunks: HashMap::new(),
 			world_generator: WorldGenerator::new(),
 			file,
-			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 		}));
 
 		out.borrow_mut().chunks.push(LoadedChunks::new_test(out.clone()));
