@@ -1,5 +1,6 @@
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use nalgebra::Translation3;
 
@@ -15,7 +16,7 @@ use crate::array3d_init;
 pub const CHUNK_SIZE: usize = 32;
 
 pub struct Chunk {
-	world: Rc<RefCell<World>>,
+	world: Rc<World>,
 	// position of back bottom left corner of chunk in block coordinates
 	// increases in incraments of 32
 	position: Position,
@@ -23,11 +24,12 @@ pub struct Chunk {
 	chunk_position: ChunkPos,
 	// store them on heap to avoid stack overflow
 	blocks: Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
+	chunk_mesh: HashMap<BlockPos, Vec<BlockFace>>,
 }
 
 impl Chunk {
 	// TEMP
-	pub fn new_test(world: Rc<RefCell<World>>, position: ChunkPos) -> Self {
+	pub fn new_test(world: Rc<World>, position: ChunkPos) -> Self {
 		let x = (position.x * CHUNK_SIZE as i64) as f64;
 		let y = (position.y * CHUNK_SIZE as i64) as f64;
 		let z = (position.z * CHUNK_SIZE as i64) as f64;
@@ -42,10 +44,11 @@ impl Chunk {
 			position: Position::new(x, y, z),
 			chunk_position: position,
 			blocks,
+			chunk_mesh: HashMap::new(),
 		}
 	}
 
-	pub fn new_test_air(world: Rc<RefCell<World>>, position: ChunkPos) -> Self {
+	pub fn new_test_air(world: Rc<World>, position: ChunkPos) -> Self {
 		let x = (position.x * CHUNK_SIZE as i64) as f64;
 		let y = (position.y * CHUNK_SIZE as i64) as f64;
 		let z = (position.z * CHUNK_SIZE as i64) as f64;
@@ -54,160 +57,125 @@ impl Chunk {
 			position: Position::new(x, y, z),
 			chunk_position: position,
 			blocks: Box::new(array3d_init!(Air::new())),
+			chunk_mesh: HashMap::new(),
 		}
-	}
-
-	fn is_block_in_chunk(block: BlockPos) -> bool {
-		block.x >= 0
-			&& block.x < CHUNK_SIZE as i64
-			&& block.y >= 0
-			&& block.y < CHUNK_SIZE as i64
-			&& block.z >= 0
-			&& block.z < CHUNK_SIZE as i64
-	}
-
-	fn make_chunk_local(block: BlockPos) -> BlockPos {
-		let x = if block.x >= 0 {
-			block.x % CHUNK_SIZE as i64
-		} else {
-			CHUNK_SIZE as i64 + (block.x % CHUNK_SIZE as i64)
-		};
-
-		let y = if block.y >= 0 {
-			block.y % CHUNK_SIZE as i64
-		} else {
-			CHUNK_SIZE as i64 + (block.y % CHUNK_SIZE as i64)
-		};
-
-		let z = if block.z >= 0 {
-			block.z % CHUNK_SIZE as i64
-		} else {
-			CHUNK_SIZE as i64 + (block.z % CHUNK_SIZE as i64)
-		};
-
-		BlockPos::new(x, y, z)
-	}
-
-	fn get_chunk_of_block(&self, block: BlockPos) -> ChunkPos {
-		let x = if block.x > 0 {
-			block.x / CHUNK_SIZE as i64
-		} else {
-			(block.x - (CHUNK_SIZE  as i64 - 1)) / CHUNK_SIZE as i64
-		};
-
-		let y = if block.y > 0 {
-			block.y / CHUNK_SIZE as i64
-		} else {
-			(block.y - (CHUNK_SIZE  as i64 - 1)) / CHUNK_SIZE as i64
-		};
-
-		let z = if block.z > 0 {
-			block.z / CHUNK_SIZE as i64
-		} else {
-			(block.z - (CHUNK_SIZE  as i64 - 1)) / CHUNK_SIZE as i64
-		};
-
-		ChunkPos::new(x, y, z) + self.chunk_position
 	}
 
 	// calls the function on the given block position
 	// the block may be from another chunk
+	#[inline]
 	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&dyn Block) -> T {
-		if Self::is_block_in_chunk(block) {
-			let x: usize = block.x.try_into().unwrap();
-			let y: usize = block.y.try_into().unwrap();
-			let z: usize = block.z.try_into().unwrap();
-
-			Some(f(&*self.blocks[x][y][z]))
+		if block.is_chunk_local() {
+			Some(f(self.get_block(block)))
 		} else {
-			let chunk_position = self.get_chunk_of_block(block);
-			let chunk_local_position = Self::make_chunk_local(block);
-			let x: usize = chunk_local_position.x.try_into().unwrap();
-			let y: usize = chunk_local_position.y.try_into().unwrap();
-			let z: usize = chunk_local_position.z.try_into().unwrap();
+			let chunk_position = block.into_chunk_pos() + self.chunk_position;
 
-			Some(f(&*self.world.borrow()
-				.get_chunk(chunk_position)?.borrow()
-				.chunk.blocks[x][y][z]))
+			Some(f(self.world
+				.chunks.borrow().get(&chunk_position)?.borrow()
+				.chunk.get_block(block.make_chunk_local())))
 		}
 	}
 
 	// calls the function on the given block position
 	// the block may be from another chunk
+	#[inline]
 	fn with_block_mut<T, F>(&mut self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&mut dyn Block) -> T {
-		if Self::is_block_in_chunk(block) {
-			let x: usize = block.x.try_into().unwrap();
-			let y: usize = block.y.try_into().unwrap();
-			let z: usize = block.z.try_into().unwrap();
-
-			Some(f(&mut *self.blocks[x][y][z]))
+		if block.is_chunk_local() {
+			Some(f(self.get_block_mut(block)))
 		} else {
-			let chunk_position = self.get_chunk_of_block(block);
-			let chunk_local_position = Self::make_chunk_local(block);
-			let x: usize = chunk_local_position.x.try_into().unwrap();
-			let y: usize = chunk_local_position.y.try_into().unwrap();
-			let z: usize = chunk_local_position.z.try_into().unwrap();
+			let chunk_position = block.into_chunk_pos() + self.chunk_position;
 
-			Some(f(&mut *self.world.borrow()
-				.get_chunk(chunk_position)?.borrow_mut()
-				.chunk.blocks[x][y][z]))
+			Some(f(self.world
+				.chunks.borrow().get(&chunk_position)?.borrow_mut()
+				.chunk.get_block_mut(block.make_chunk_local())))
 		}
 	}
 
-	pub fn generate_block_faces(&self) -> Vec<BlockFace> {
-		let mut out = Vec::new();
+	#[inline]
+	pub fn get_block(&self, block: BlockPos) -> &dyn Block {
+		let x: usize = block.x.try_into().unwrap();
+		let y: usize = block.y.try_into().unwrap();
+		let z: usize = block.z.try_into().unwrap();
+		&*self.blocks[x][y][z]
+	}
 
-		for (x, yblocks) in self.blocks.iter().enumerate() {
-			for (y, zblocks) in yblocks.iter().enumerate() {
-				for (z, block) in zblocks.iter().enumerate() {
-					if block.is_air() {
-						continue;
-					}
+	#[inline]
+	pub fn get_block_mut(&mut self, block: BlockPos) -> &mut dyn Block {
+		let x: usize = block.x.try_into().unwrap();
+		let y: usize = block.y.try_into().unwrap();
+		let z: usize = block.z.try_into().unwrap();
+		&mut *self.blocks[x][y][z]
+	}
 
-					let mut model = block.model().clone();
-					model.translate(&Translation3::new(
-						self.position.x + x as f64,
-						self.position.y + y as f64,
-						self.position.z + z as f64
-					));
+	// performs a mesh update on the given block
+	pub fn mesh_update(&mut self, block_pos: BlockPos) {
+		assert!(block_pos.is_chunk_local());
 
-					let x = x as i64;
-					let y = y as i64;
-					let z = z as i64;
+		let x = block_pos.x;
+		let y = block_pos.y;
+		let z = block_pos.z;
 
-					self.with_block(BlockPos::new(x - 1, y, z), |block| if block.is_air() {
-						out.push(model.xneg);
-					});
-					self.with_block(BlockPos::new(x + 1, y, z), |block| if block.is_air() {
-						out.push(model.xpos);
-					});
+		let block = self.get_block(block_pos);
 
-					self.with_block(BlockPos::new(x, y - 1, z), |block| if block.is_air() {
-						out.push(model.yneg);
-					});
-					self.with_block(BlockPos::new(x, y + 1, z), |block| if block.is_air() {
-						out.push(model.ypos);
-					});
-
-					self.with_block(BlockPos::new(x, y, z - 1), |block| if block.is_air() {
-						out.push(model.zneg);
-					});
-					self.with_block(BlockPos::new(x, y, z + 1), |block| if block.is_air() {
-						out.push(model.zpos);
-					});
-				}
-			}
+		if block.is_air() {
+			self.chunk_mesh.remove(&block_pos);
+			return;
 		}
 
-		out
+		let mut model = block.model().clone();
+		// translate only the faces we need to, no the whole model
+		let translation = Translation3::new(
+			self.position.x + x as f64,
+			self.position.y + y as f64,
+			self.position.z + z as f64
+		);
+
+		let mut out = Vec::new();
+
+		self.with_block(BlockPos::new(x - 1, y, z), |block| if block.is_air() {
+			model.xneg.translate(&translation);
+			out.push(model.xneg);
+		});
+		self.with_block(BlockPos::new(x + 1, y, z), |block| if block.is_air() {
+			model.xpos.translate(&translation);
+			out.push(model.xpos);
+		});
+
+		self.with_block(BlockPos::new(x, y - 1, z), |block| if block.is_air() {
+			model.yneg.translate(&translation);
+			out.push(model.yneg);
+		});
+		self.with_block(BlockPos::new(x, y + 1, z), |block| if block.is_air() {
+			model.ypos.translate(&translation);
+			out.push(model.ypos);
+		});
+
+		self.with_block(BlockPos::new(x, y, z - 1), |block| if block.is_air() {
+			model.zneg.translate(&translation);
+			out.push(model.zneg);
+		});
+		self.with_block(BlockPos::new(x, y, z + 1), |block| if block.is_air() {
+			model.zpos.translate(&translation);
+			out.push(model.zpos);
+		});
+
+		if !out.is_empty() {
+			self.chunk_mesh.insert(block_pos, out);
+		} else {
+			self.chunk_mesh.remove(&block_pos);
+		}
+	}
+
+	// TEMP
+	pub fn get_block_mesh(&self) -> Vec<BlockFace> {
+		self.chunk_mesh.iter().map(|(_, v)| v.iter().map(|b| *b)).flatten().collect::<Vec<_>>()
 	}
 }
 
 pub struct LoadedChunk {
 	pub chunk: Chunk,
-	chunk_mesh: Vec<BlockFace>,
 	pub load_count: u64,
 }
 
@@ -216,7 +184,6 @@ impl LoadedChunk {
 		//let chunk_mesh = chunk.generate_block_faces();
 		RefCell::new(LoadedChunk {
 			chunk,
-			chunk_mesh: Vec::new(),
 			load_count: 0,
 		})
 	}

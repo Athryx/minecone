@@ -12,7 +12,7 @@ impl WorldGenerator {
 		WorldGenerator {}
 	}
 
-	pub fn generate_chunk(&self, world: Rc<RefCell<World>>, position: ChunkPos) -> RefCell<LoadedChunk> {
+	pub fn generate_chunk(&self, world: Rc<World>, position: ChunkPos) -> RefCell<LoadedChunk> {
 		if position.y < 0 {
 			LoadedChunk::new(Chunk::new_test(world, position))
 		} else {

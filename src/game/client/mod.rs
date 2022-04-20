@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::cell::RefCell;
 use std::time::Duration;
 
 use winit::{
@@ -18,7 +17,7 @@ use super::block::BlockFace;
 mod camera_controller;
 
 pub struct Client {
-	world: Rc<RefCell<World>>,
+	world: Rc<World>,
 	world_mesh: Mesh,
 	texture_map: Material,
 	player_id: PlayerId,
@@ -27,19 +26,19 @@ pub struct Client {
 }
 
 impl Client {
-	pub fn new(window: &Window, world: Rc<RefCell<World>>) -> Self {
+	pub fn new(window: &Window, world: Rc<World>) -> Self {
 		let renderer = pollster::block_on(Renderer::new(window));
 
 		let texture_map = Material::load_from_file("texture-map.png", "texture map", renderer.context())
 			.expect("could not load texture map");
 
-		let player_id = world.borrow_mut().connect();
+		let player_id = world.connect();
 
 		let mut vertexes = Vec::new();
 		let mut indexes = Vec::new();
 
 		let mut current_index = 0;
-		for block_face in world.borrow().world_mesh() {
+		for block_face in world.world_mesh() {
 			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
 			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
 			current_index += 4;

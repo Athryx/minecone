@@ -1,5 +1,4 @@
 use std::time::{Instant, Duration};
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use winit::window::WindowId;
@@ -18,6 +17,7 @@ mod player;
 mod entity;
 mod block;
 mod chunk;
+pub use chunk::CHUNK_SIZE;
 mod world;
 mod worldgen;
 
@@ -27,7 +27,7 @@ pub struct Game {
 	window_id: WindowId,
 	frame_time: Duration,
 	last_update_time: Instant,
-	world: Rc<RefCell<World>>,
+	world: Rc<World>,
 	client: Client,
 }
 
