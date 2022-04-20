@@ -11,6 +11,7 @@ use winit::{
 use crate::render::Renderer;
 use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
+use super::player::PlayerId;
 use super::world::World;
 use super::block::BlockFace;
 
@@ -20,6 +21,7 @@ pub struct Client {
 	world: Rc<RefCell<World>>,
 	world_mesh: Mesh,
 	texture_map: Material,
+	player_id: PlayerId,
 	camera_controller: CameraController,
 	renderer: Renderer,
 }
@@ -49,10 +51,13 @@ impl Client {
 			renderer.context()
 		);
 
+		let player_id = world.borrow_mut().connect();
+
 		Self {
 			world,
 			world_mesh: mesh,
 			texture_map,
+			player_id,
 			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 			renderer,
 		}

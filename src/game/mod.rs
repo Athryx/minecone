@@ -14,6 +14,7 @@ use world::World;
 use client::Client;
 
 mod client;
+mod player;
 mod entity;
 mod block;
 mod chunk;

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
-use nalgebra::{Vector3, Translation3};
+use nalgebra::Translation3;
 
 use super::block::{Block, BlockFace};
 // TEMP
@@ -12,7 +12,7 @@ use crate::prelude::*;
 
 use crate::array3d_init;
 
-const CHUNK_SIZE: usize = 32;
+pub const CHUNK_SIZE: usize = 32;
 
 pub struct Chunk {
 	world: Rc<RefCell<World>>,
@@ -21,8 +21,8 @@ pub struct Chunk {
 	position: Position,
 	// coordinates of chunk, increases in incraments of 1
 	chunk_position: ChunkPos,
-	blocks: [[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
-	air_map: [[[bool; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
+	// store them on heap to avoid stack overflow
+	blocks: Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
 }
 
 impl Chunk {
@@ -31,12 +31,17 @@ impl Chunk {
 		let x = (position.x * CHUNK_SIZE as i64) as f64;
 		let y = (position.y * CHUNK_SIZE as i64) as f64;
 		let z = (position.z * CHUNK_SIZE as i64) as f64;
+
+		let mut blocks = Box::new(array3d_init!(Stone::new()));
+		blocks[5][16][24] = Air::new();
+		blocks[0][0][0] = Air::new();
+		blocks[13][19][0] = Air::new();
+
 		Self {
 			world,
 			position: Position::new(x, y, z),
 			chunk_position: position,
-			blocks: array3d_init!(Stone::new()),
-			air_map: array3d_init!(false),
+			blocks,
 		}
 	}
 
@@ -48,8 +53,106 @@ impl Chunk {
 			world,
 			position: Position::new(x, y, z),
 			chunk_position: position,
-			blocks: array3d_init!(Air::new()),
-			air_map: array3d_init!(true),
+			blocks: Box::new(array3d_init!(Air::new())),
+		}
+	}
+
+	fn is_block_in_chunk(block: BlockPos) -> bool {
+		block.x >= 0
+			&& block.x < CHUNK_SIZE as i64
+			&& block.y >= 0
+			&& block.y < CHUNK_SIZE as i64
+			&& block.z >= 0
+			&& block.z < CHUNK_SIZE as i64
+	}
+
+	fn make_chunk_local(block: BlockPos) -> BlockPos {
+		let x = if block.x >= 0 {
+			block.x % CHUNK_SIZE as i64
+		} else {
+			CHUNK_SIZE as i64 + (block.x % CHUNK_SIZE as i64)
+		};
+
+		let y = if block.y >= 0 {
+			block.y % CHUNK_SIZE as i64
+		} else {
+			CHUNK_SIZE as i64 + (block.y % CHUNK_SIZE as i64)
+		};
+
+		let z = if block.z >= 0 {
+			block.z % CHUNK_SIZE as i64
+		} else {
+			CHUNK_SIZE as i64 + (block.z % CHUNK_SIZE as i64)
+		};
+
+		BlockPos::new(x, y, z)
+	}
+
+	fn get_chunk_of_block(&self, block: BlockPos) -> ChunkPos {
+		let x = if block.x > 0 {
+			block.x / CHUNK_SIZE as i64
+		} else {
+			(block.x - (CHUNK_SIZE  as i64 - 1)) / CHUNK_SIZE as i64
+		};
+
+		let y = if block.y > 0 {
+			block.y / CHUNK_SIZE as i64
+		} else {
+			(block.y - (CHUNK_SIZE  as i64 - 1)) / CHUNK_SIZE as i64
+		};
+
+		let z = if block.z > 0 {
+			block.z / CHUNK_SIZE as i64
+		} else {
+			(block.z - (CHUNK_SIZE  as i64 - 1)) / CHUNK_SIZE as i64
+		};
+
+		ChunkPos::new(x, y, z) + self.chunk_position
+	}
+
+	// calls the function on the given block position
+	// the block may be from another chunk
+	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
+		where F: FnOnce(&dyn Block) -> T {
+		if Self::is_block_in_chunk(block) {
+			let x: usize = block.x.try_into().unwrap();
+			let y: usize = block.y.try_into().unwrap();
+			let z: usize = block.z.try_into().unwrap();
+
+			Some(f(&*self.blocks[x][y][z]))
+		} else {
+			let chunk_position = self.get_chunk_of_block(block);
+			let chunk_local_position = Self::make_chunk_local(block);
+			let x: usize = chunk_local_position.x.try_into().unwrap();
+			let y: usize = chunk_local_position.y.try_into().unwrap();
+			let z: usize = chunk_local_position.z.try_into().unwrap();
+
+			Some(f(&*self.world.borrow()
+				.get_chunk(chunk_position)?.borrow()
+				.chunk.blocks[x][y][z]))
+		}
+	}
+
+	// calls the function on the given block position
+	// the block may be from another chunk
+	fn with_block_mut<T, F>(&mut self, block: BlockPos, f: F) -> Option<T>
+		where F: FnOnce(&mut dyn Block) -> T {
+		if Self::is_block_in_chunk(block) {
+			let x: usize = block.x.try_into().unwrap();
+			let y: usize = block.y.try_into().unwrap();
+			let z: usize = block.z.try_into().unwrap();
+
+			Some(f(&mut *self.blocks[x][y][z]))
+		} else {
+			let chunk_position = self.get_chunk_of_block(block);
+			let chunk_local_position = Self::make_chunk_local(block);
+			let x: usize = chunk_local_position.x.try_into().unwrap();
+			let y: usize = chunk_local_position.y.try_into().unwrap();
+			let z: usize = chunk_local_position.z.try_into().unwrap();
+
+			Some(f(&mut *self.world.borrow()
+				.get_chunk(chunk_position)?.borrow_mut()
+				.chunk.blocks[x][y][z]))
 		}
 	}
 
@@ -70,24 +173,30 @@ impl Chunk {
 						self.position.z + z as f64
 					));
 
-					if x == 0 || self.air_map[x - 1][y][z] {
+					let x = x as i64;
+					let y = y as i64;
+					let z = z as i64;
+
+					self.with_block(BlockPos::new(x - 1, y, z), |block| if block.is_air() {
 						out.push(model.xneg);
-					}
-					if x == CHUNK_SIZE - 1 || self.air_map[x + 1][y][z] {
+					});
+					self.with_block(BlockPos::new(x + 1, y, z), |block| if block.is_air() {
 						out.push(model.xpos);
-					}
-					if y == 0 || self.air_map[x][y - 1][z] {
+					});
+
+					self.with_block(BlockPos::new(x, y - 1, z), |block| if block.is_air() {
 						out.push(model.yneg);
-					}
-					if y == CHUNK_SIZE - 1 || self.air_map[x][y + 1][z] {
+					});
+					self.with_block(BlockPos::new(x, y + 1, z), |block| if block.is_air() {
 						out.push(model.ypos);
-					}
-					if z == 0 || self.air_map[x][y][z - 1] {
+					});
+
+					self.with_block(BlockPos::new(x, y, z - 1), |block| if block.is_air() {
 						out.push(model.zneg);
-					}
-					if z == CHUNK_SIZE - 1 || self.air_map[x][y][z + 1] {
+					});
+					self.with_block(BlockPos::new(x, y, z + 1), |block| if block.is_air() {
 						out.push(model.zpos);
-					}
+					});
 				}
 			}
 		}
@@ -96,7 +205,25 @@ impl Chunk {
 	}
 }
 
+pub struct LoadedChunk {
+	pub chunk: Chunk,
+	chunk_mesh: Vec<BlockFace>,
+	pub load_count: u64,
+}
+
+impl LoadedChunk {
+	pub fn new(chunk: Chunk) -> RefCell<LoadedChunk> {
+		let chunk_mesh = chunk.generate_block_faces();
+		RefCell::new(LoadedChunk {
+			chunk,
+			chunk_mesh,
+			load_count: 0,
+		})
+	}
+}
+
 // the entire saved state of the chunk, which is all blocks and entities
+// TODO: maybe save chunk mesh to load faster
 pub struct ChunkData {
 	chunk: Chunk,
 	entities: Vec<Box<dyn Entity>>,

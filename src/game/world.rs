@@ -11,10 +11,11 @@ use nalgebra::Vector3;
 use anyhow::Result;
 
 use super::{
-	chunk::{Chunk, ChunkData},
+	chunk::{Chunk, LoadedChunk, ChunkData},
 	entity::Entity,
 	block::BlockFace,
 	worldgen::WorldGenerator,
+	player::{Player, PlayerId},
 };
 use crate::prelude::*;
 
@@ -23,44 +24,12 @@ use crate::prelude::*;
 // 2,048 meters in z direction
 const WORLD_MAX_SIZE: Vector3<u64> = Vector3::new(512, 64, 512);
 
-struct LoadedChunks {
-	world: Rc<RefCell<World>>,
-	// Load distance in x, y, and z directions
-	load_distance: Vector3<u64>,
-	// coordinates of bottom back left of loaded chunk group
-	position: ChunkPos,
-	// TODO: in the future maybe make a 3d queue data structure that doesn't have any layers of indirection to be more cache friendly
-	chunks: VecDeque<VecDeque<VecDeque<Chunk>>>,
-	world_mesh: Vec<BlockFace>,
-}
-
-impl LoadedChunks {
-	// TEMP
-	fn new_test(world: Rc<RefCell<World>>) -> Self {
-		let mut chunks = VecDeque::new();
-		chunks.push_back(VecDeque::new());
-		chunks[0].push_back(VecDeque::new());
-		let chunk = Chunk::new_test(world.clone(), ChunkPos::new(0, 0, 0));
-		let faces = chunk.generate_block_faces();
-		chunks[0][0].push_back(chunk);
-
-		LoadedChunks {
-			world,
-			load_distance: Vector3::new(1, 1, 1),
-			position: ChunkPos::new(0, 0, 0),
-			chunks,
-			world_mesh: faces,
-		}
-	}
-}
-
 pub struct World {
 	self_weak: Weak<RefCell<Self>>,
-	// 1 loaded chunks struct per player
-	chunks: Vec<LoadedChunks>,
+	players: HashMap<PlayerId, Player>,
 	entities: Vec<Box<dyn Entity>>,
-	// the key is the chunk position
-	cached_chunks: HashMap<Vector3<u64>, ChunkData>,
+	chunks: HashMap<ChunkPos, RefCell<LoadedChunk>>,
+	cached_chunks: HashMap<ChunkPos, ChunkData>,
 	world_generator: WorldGenerator,
 	// backing file of the world
 	file: File,
@@ -75,8 +44,9 @@ impl World {
 
 		Ok(Rc::new_cyclic(|weak| RefCell::new(Self {
 			self_weak: weak.clone(),
-			chunks: Vec::new(),
+			players: HashMap::new(),
 			entities: Vec::new(),
+			chunks: HashMap::new(),
 			cached_chunks: HashMap::new(),
 			world_generator: WorldGenerator::new(),
 			file,
@@ -92,19 +62,70 @@ impl World {
 
 		let out = Rc::new_cyclic(|weak| RefCell::new(Self {
 			self_weak: weak.clone(),
-			chunks: Vec::new(),
+			players: HashMap::new(),
 			entities: Vec::new(),
+			chunks: HashMap::new(),
 			cached_chunks: HashMap::new(),
 			world_generator: WorldGenerator::new(),
 			file,
 		}));
 
-		out.borrow_mut().chunks.push(LoadedChunks::new_test(out.clone()));
+		let position = ChunkPos::new(0, 0, 0);
+		let chunk = LoadedChunk::new(Chunk::new_test(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(1, 0, 0);
+		let chunk = LoadedChunk::new(Chunk::new_test_air(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(0, 1, 0);
+		let chunk = LoadedChunk::new(Chunk::new_test_air(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(1, 1, 0);
+		let chunk = LoadedChunk::new(Chunk::new_test_air(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(0, 0, 1);
+		let chunk = LoadedChunk::new(Chunk::new_test_air(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(1, 0, 1);
+		let chunk = LoadedChunk::new(Chunk::new_test(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(0, 1, 1);
+		let chunk = LoadedChunk::new(Chunk::new_test_air(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
+		let position = ChunkPos::new(1, 1, 1);
+		let chunk = LoadedChunk::new(Chunk::new_test(out.clone(), position));
+		out.borrow_mut().chunks.insert(position, chunk);
+
 		Ok(out)
 	}
 
-	// TODO: once multiplayer support take in player id
-	pub fn world_mesh(&self) -> &[BlockFace] {
-		&self.chunks[0].world_mesh
+	// gets a chunk if it is loaded, otherwise returns None
+	pub fn get_chunk(&self, position: ChunkPos) -> Option<&RefCell<LoadedChunk>> {
+		self.chunks.get(&position)
+	}
+}
+
+// NOTE: when multiplayer is implemented, all of the methods in the impl block below 
+// will be all the different type of requests that could be sent by the client to the server
+impl World {
+	pub fn connect(&mut self) -> PlayerId {
+		let player = Player::new();
+		let id = player.id();
+		self.players.insert(id, player);
+		id
+	}
+
+	pub fn world_mesh(&self) -> Vec<BlockFace> {
+		let out = self.chunks.iter()
+			.map(|(_, c)| c.borrow().chunk.generate_block_faces())
+			.flatten()
+			.collect::<Vec<_>>();
+		out
 	}
 }
