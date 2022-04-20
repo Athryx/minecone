@@ -7,6 +7,7 @@ extern crate log;
 use winit::{
 	event_loop::EventLoop,
 	window::WindowBuilder,
+	dpi::PhysicalSize,
 };
 
 mod assets;
@@ -21,6 +22,7 @@ fn main() {
 	let event_loop = EventLoop::new();
 	let window = WindowBuilder::new()
 		.with_title("Mineclone")
+		.with_inner_size(PhysicalSize::new(1280, 720))
 		.build(&event_loop)
 		.unwrap();
 

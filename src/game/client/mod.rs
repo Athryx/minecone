@@ -33,6 +33,8 @@ impl Client {
 		let texture_map = Material::load_from_file("texture-map.png", "texture map", renderer.context())
 			.expect("could not load texture map");
 
+		let player_id = world.borrow_mut().connect();
+
 		let mut vertexes = Vec::new();
 		let mut indexes = Vec::new();
 
@@ -50,8 +52,6 @@ impl Client {
 			0,
 			renderer.context()
 		);
-
-		let player_id = world.borrow_mut().connect();
 
 		Self {
 			world,

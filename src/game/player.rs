@@ -41,4 +41,8 @@ impl Player {
 		let z = self.position.z as i64 / CHUNK_SIZE as i64;
 		ChunkPos::new(x, y, z)
 	}
+
+	pub fn render_distance(&self) -> ChunkPos {
+		self.render_distance
+	}
 }

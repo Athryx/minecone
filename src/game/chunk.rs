@@ -213,10 +213,10 @@ pub struct LoadedChunk {
 
 impl LoadedChunk {
 	pub fn new(chunk: Chunk) -> RefCell<LoadedChunk> {
-		let chunk_mesh = chunk.generate_block_faces();
+		//let chunk_mesh = chunk.generate_block_faces();
 		RefCell::new(LoadedChunk {
 			chunk,
-			chunk_mesh,
+			chunk_mesh: Vec::new(),
 			load_count: 0,
 		})
 	}
