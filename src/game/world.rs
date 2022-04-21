@@ -98,17 +98,19 @@ impl World {
 	// decraments the load counter of all chunks between min and max chunk, not including max
 	// and unloads them if the count reaches 0
 	pub fn unload_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
+		let mut chunks = self.chunks.borrow_mut();
+
 		for x in min_chunk.x..max_chunk.x {
 			for y in min_chunk.y..max_chunk.y {
 				for z in min_chunk.z..max_chunk.z {
 					let position = ChunkPos::new(x, y, z);
 
-					if let Some(loaded_chunk) = self.chunks.borrow().get(&position) {
+					if let Some(loaded_chunk) = chunks.get(&position) {
 						let mut loaded_chunk = loaded_chunk.borrow_mut();
 						loaded_chunk.load_count -= 1;
 						if loaded_chunk.load_count == 0 {
 							drop(loaded_chunk);
-							self.chunks.borrow_mut().remove(&position);
+							chunks.remove(&position);
 						}
 					}
 				}
@@ -172,9 +174,118 @@ impl World {
 		id
 	}
 
-	pub fn set_player_position(&mut self, player_id: PlayerId, position: Position) -> Option<()> {
-		let player = self.players.borrow().get(&player_id)?;
-		Some(())
+	// TODO: allow changing from more than 1 chunk at at a time
+	// TODO: when going along diaganols, sometimes chunks are loaded and immediately unloaded
+	// TEMP: returns true if mesh has changed
+	pub fn set_player_position(&self, player_id: PlayerId, position: Position) -> Option<bool> {
+		let mut players = self.players.borrow_mut();
+		let player = players.get_mut(&player_id)?;
+
+		let chunk_position = position.into_chunk_pos();
+
+		let render_zone_corner = player.chunk_position() - player.render_distance();
+		let render_zone_length = 2 * player.render_distance();
+
+		if chunk_position.x != player.chunk_position().x {
+			let xaxis = ChunkPos::new(1, 0, 0);
+
+			let pos_min_chunk = render_zone_corner + render_zone_length.xonly();
+			let pos_max_chunk = render_zone_corner + render_zone_length + xaxis;
+
+			let neg_min_chunk = render_zone_corner - xaxis;
+			let neg_max_chunk = render_zone_corner + render_zone_length.yzonly();
+
+			if chunk_position.x == player.chunk_position().x + 1 {
+				let neg_min_chunk = neg_min_chunk + xaxis;
+				let neg_max_chunk = neg_max_chunk + xaxis;
+
+				self.unload_chunks(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+
+				self.load_chunks(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+			} else if chunk_position.x == player.chunk_position().x - 1 {
+				let pos_min_chunk = pos_min_chunk - xaxis;
+				let pos_max_chunk = pos_max_chunk - xaxis;
+
+				self.unload_chunks(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+
+				self.load_chunks(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+			} else {
+				todo!("moved to far for current player moving code");
+			}
+		}
+
+		if chunk_position.y != player.chunk_position().y {
+			let yaxis = ChunkPos::new(0, 1, 0);
+
+			let pos_min_chunk = render_zone_corner + render_zone_length.yonly();
+			let pos_max_chunk = render_zone_corner + render_zone_length + yaxis;
+
+			let neg_min_chunk = render_zone_corner - yaxis;
+			let neg_max_chunk = render_zone_corner + render_zone_length.xzonly();
+
+			if chunk_position.y == player.chunk_position().y + 1 {
+				let neg_min_chunk = neg_min_chunk + yaxis;
+				let neg_max_chunk = neg_max_chunk + yaxis;
+
+				self.unload_chunks(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+
+				self.load_chunks(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+			} else if chunk_position.y == player.chunk_position().y - 1 {
+				let pos_min_chunk = pos_min_chunk - yaxis;
+				let pos_max_chunk = pos_max_chunk - yaxis;
+
+				self.unload_chunks(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+
+				self.load_chunks(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+			} else {
+				todo!("moved to far for current player moving code");
+			}
+		}
+
+		if chunk_position.z != player.chunk_position().z {
+			let zaxis = ChunkPos::new(0, 0, 1);
+
+			let pos_min_chunk = render_zone_corner + render_zone_length.zonly();
+			let pos_max_chunk = render_zone_corner + render_zone_length + zaxis;
+
+			let neg_min_chunk = render_zone_corner - zaxis;
+			let neg_max_chunk = render_zone_corner + render_zone_length.xyonly();
+
+			if chunk_position.z == player.chunk_position().z + 1 {
+				let neg_min_chunk = neg_min_chunk + zaxis;
+				let neg_max_chunk = neg_max_chunk + zaxis;
+
+				self.unload_chunks(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+
+				self.load_chunks(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+			} else if chunk_position.z == player.chunk_position().z - 1 {
+				let pos_min_chunk = pos_min_chunk - zaxis;
+				let pos_max_chunk = pos_max_chunk - zaxis;
+
+				self.unload_chunks(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+
+				self.load_chunks(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+			} else {
+				todo!("moved to far for current player moving code");
+			}
+		}
+
+		let out = chunk_position != player.chunk_position();
+
+		player.position = position;
+		Some(out)
 	}
 
 	pub fn world_mesh(&self) -> Vec<BlockFace> {

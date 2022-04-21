@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::prelude::*;
-use super::chunk::CHUNK_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PlayerId(u64);
@@ -27,7 +26,8 @@ impl Player {
 		Player {
 			id: PlayerId::new(),
 			position: Position::new(0.0, 0.0, 0.0),
-			render_distance: ChunkPos::new(8, 5, 8),
+			//render_distance: ChunkPos::new(8, 5, 8),
+			render_distance: ChunkPos::new(2, 2, 2),
 		}
 	}
 
@@ -36,10 +36,7 @@ impl Player {
 	}
 
 	pub fn chunk_position(&self) -> ChunkPos {
-		let x = self.position.x as i64 / CHUNK_SIZE as i64;
-		let y = self.position.y as i64 / CHUNK_SIZE as i64;
-		let z = self.position.z as i64 / CHUNK_SIZE as i64;
-		ChunkPos::new(x, y, z)
+		self.position.into_chunk_pos()
 	}
 
 	pub fn render_distance(&self) -> ChunkPos {

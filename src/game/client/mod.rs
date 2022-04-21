@@ -7,6 +7,7 @@ use winit::{
 	dpi::PhysicalSize
 };
 
+use crate::prelude::*;
 use crate::render::Renderer;
 use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
@@ -62,6 +63,27 @@ impl Client {
 		}
 	}
 
+	pub fn generate_mesh(&mut self) {
+		let mut vertexes = Vec::new();
+		let mut indexes = Vec::new();
+
+		let mut current_index = 0;
+		for block_face in self.world.world_mesh() {
+			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
+			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
+			current_index += 4;
+		}
+
+		// TODO: write to the underlying buffer
+		self.world_mesh = Mesh::new(
+			"world mesh",
+			&vertexes,
+			&indexes,
+			0,
+			self.renderer.context()
+		);
+	}
+
 	pub fn input(&mut self, event: &WindowEvent) {
 		self.camera_controller.process_event(event);
 	}
@@ -74,7 +96,15 @@ impl Client {
 	}
 
 	pub fn physics_update(&mut self, delta: Duration) {
-		self.camera_controller.update_camera(self.renderer.get_camera_mut(), delta);
+		let camera = self.renderer.get_camera_mut();
+		self.camera_controller.update_camera(camera, delta);
+
+		if let Some(result) = self.world.set_player_position(self.player_id, camera.get_position()) {
+			if result {
+				self.generate_mesh()
+			}
+		}
+
 		self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
 	}
 }

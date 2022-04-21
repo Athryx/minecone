@@ -1,5 +1,7 @@
 use nalgebra::{Vector3, Matrix4, Point3};
 
+use crate::prelude::*;
+
 const TO_GPU_MATRIX: Matrix4<f32> = Matrix4::new(
 	1.0, 0.0, 0.0, 0.0,
 	0.0, 1.0, 0.0, 0.0,
@@ -42,6 +44,13 @@ impl Camera {
 	// gets a camera uniform which can be sent to the gpu
 	pub fn get_camera_uniform(&self) -> CameraUniform {
 		CameraUniform(self.get_camera_matrix().into())
+	}
+
+	pub fn get_position(&self) -> Position {
+		let x = self.position.x as f64;
+		let y = self.position.y as f64;
+		let z = self.position.z as f64;
+		Position::new(x, y, z)
 	}
 }
 
