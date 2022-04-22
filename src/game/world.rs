@@ -13,7 +13,7 @@ use anyhow::Result;
 use super::{
 	chunk::{Chunk, LoadedChunk, ChunkData},
 	entity::Entity,
-	block::BlockFace,
+	block::{BlockFace, Block, Stone},
 	worldgen::WorldGenerator,
 	player::{Player, PlayerId}, CHUNK_SIZE,
 };
@@ -133,6 +133,25 @@ impl World {
 		}
 	}
 
+	// performs mesh updates on the passed in block as well as all adjacent blocks
+	pub fn mesh_update_adjacent(&self, block: BlockPos) {
+		let chunks = self.chunks.borrow();
+
+		let mesh_update_block = |b: BlockPos| {
+			if let Some(chunk) = chunks.get(&b.into_chunk_pos()) {
+				chunk.borrow_mut().chunk.mesh_update(b.make_chunk_local());
+			}
+		};
+
+		mesh_update_block(block);
+		mesh_update_block(block + BlockPos::new(1, 0, 0));
+		mesh_update_block(block + BlockPos::new(-1, 0, 0));
+		mesh_update_block(block + BlockPos::new(0, 1, 0));
+		mesh_update_block(block + BlockPos::new(0, -1, 0));
+		mesh_update_block(block + BlockPos::new(0, 0, 1));
+		mesh_update_block(block + BlockPos::new(0, 0, -1));
+	}
+
 	// FIXME: this is ugly
 	pub fn chunk_mesh_update(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
 		let chunks = self.chunks.borrow();
@@ -153,6 +172,101 @@ impl World {
 						}
 					}
 				}
+			}
+		}
+	}
+
+	#[inline]
+	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
+		where F: FnOnce(&dyn Block) -> T {
+		let (chunk_position, block) = block.into_chunk_block_pos();
+
+		Some(f(self.chunks.borrow().get(&chunk_position)?
+			.borrow().chunk.get_block(block.make_chunk_local())))
+	}
+
+	// calls the function on the given block position
+	// the block may be from another chunk
+	#[inline]
+	fn with_block_mut<T, F>(&mut self, block: BlockPos, f: F) -> Option<T>
+		where F: FnOnce(&mut dyn Block) -> T {
+		let (chunk_position, block) = block.into_chunk_block_pos();
+
+		Some(f(self.chunks.borrow().get(&chunk_position)?
+			.borrow_mut().chunk.get_block_mut(block.make_chunk_local())))
+	}
+
+	// sets the block at BlockPos, returns bool on success
+	pub fn set_block(&self, block_pos: BlockPos, block: Box<dyn Block>) -> bool {
+		let (chunk_pos, block_pos) = block_pos.into_chunk_block_pos();
+
+		let chunks = self.chunks.borrow();
+		if let Some(chunk) = chunks.get(&chunk_pos) {
+			chunk.borrow_mut().chunk.set_block(block_pos, block);
+			true
+		} else {
+			false
+		}
+	}
+
+	// casts a ray starting at ray_start up to a length of max_length
+	// if a block other than air is found, the coordinates are returned, otherwise None is returned
+	// if the ray ever intersects with an empty chunk, None is returned
+	pub fn block_raycast(&self, ray_start: Position, ray: Vector3<f64>, max_length: f64) -> Option<BlockPos> {
+		let ray = ray.normalize();
+		let block_start_pos = ray_start.into_block_pos();
+		let mut block_pos = block_start_pos;
+
+		let direction_x = if ray.x > 0.0 { 1 } else if ray.x < 0.0 { -1 } else { 0 };
+		let direction_y = if ray.y > 0.0 { 1 } else if ray.y < 0.0 { -1 } else { 0 };
+		let direction_z = if ray.z > 0.0 { 1 } else if ray.z < 0.0 { -1 } else { 0 };
+
+		let intercept_time_interval_x = if ray.x != 0.0 { (1.0 / ray.x).abs() } else { f64::INFINITY };
+		let intercept_time_interval_y = if ray.y != 0.0 { (1.0 / ray.y).abs() } else { f64::INFINITY };
+		let intercept_time_interval_z = if ray.z != 0.0 { (1.0 / ray.z).abs() } else { f64::INFINITY };
+
+		let ray_offset_x = if ray_start.x > 0.0 { ray_start.x % 1.0 } else { 1.0 + (ray_start.x % 1.0) };
+		let ray_offset_y = if ray_start.y > 0.0 { ray_start.y % 1.0 } else { 1.0 + (ray_start.y % 1.0) };
+		let ray_offset_z = if ray_start.z > 0.0 { ray_start.z % 1.0 } else { 1.0 + (ray_start.z % 1.0) };
+
+		let mut next_intercept_time_x = if ray.x > 0.0 { (1.0 - ray_offset_x) / ray.x } else if ray.x < 0.0 { ray_offset_x / -ray.x } else { f64::INFINITY };
+		let mut next_intercept_time_y = if ray.y > 0.0 { (1.0 - ray_offset_y) / ray.y } else if ray.y < 0.0 { ray_offset_y / -ray.y } else { f64::INFINITY };
+		let mut next_intercept_time_z = if ray.z > 0.0 { (1.0 - ray_offset_z) / ray.z } else if ray.z < 0.0 { ray_offset_z / -ray.z } else { f64::INFINITY };
+
+		loop {
+			if next_intercept_time_x < next_intercept_time_y && next_intercept_time_x < next_intercept_time_z {
+				block_pos.x += direction_x;
+				if (block_pos - block_start_pos).magnitude() > max_length {
+					return None;
+				}
+
+				if !self.with_block(block_pos, |b| b.is_air())? {
+					return Some(block_pos);
+				}
+
+				next_intercept_time_x += intercept_time_interval_x;
+			} else if next_intercept_time_y < next_intercept_time_z {
+				block_pos.y += direction_y;
+				if (block_pos - block_start_pos).magnitude() > max_length {
+					return None;
+				}
+
+				if !self.with_block(block_pos, |b| b.is_air())? {
+					return Some(block_pos);
+				}
+
+				next_intercept_time_y += intercept_time_interval_y;
+			} else {
+				block_pos.z += direction_z;
+				if (block_pos - block_start_pos).magnitude() > max_length {
+					return None;
+				}
+
+				if !self.with_block(block_pos, |b| b.is_air())? {
+					return Some(block_pos);
+				}
+
+				next_intercept_time_z += intercept_time_interval_z;
 			}
 		}
 	}

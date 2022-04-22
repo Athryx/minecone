@@ -109,6 +109,12 @@ impl Chunk {
 		&mut *self.blocks[x][y][z]
 	}
 
+	#[inline]
+	pub fn set_block(&mut self, block_pos: BlockPos, block: Box<dyn Block>) {
+		assert!(block_pos.is_chunk_local());
+		self.blocks[block_pos.x as usize][block_pos.y as usize][block_pos.z as usize] = block;
+	}
+
 	// performs a mesh update on the given block
 	pub fn mesh_update(&mut self, block_pos: BlockPos) {
 		assert!(block_pos.is_chunk_local());
@@ -134,29 +140,29 @@ impl Chunk {
 
 		let mut out = Vec::new();
 
-		self.with_block(BlockPos::new(x - 1, y, z), |block| if block.is_air() {
+		self.with_block(BlockPos::new(x - 1, y, z), |block| if block.is_translucent() {
 			model.xneg.translate(&translation);
 			out.push(model.xneg);
 		});
-		self.with_block(BlockPos::new(x + 1, y, z), |block| if block.is_air() {
+		self.with_block(BlockPos::new(x + 1, y, z), |block| if block.is_translucent() {
 			model.xpos.translate(&translation);
 			out.push(model.xpos);
 		});
 
-		self.with_block(BlockPos::new(x, y - 1, z), |block| if block.is_air() {
+		self.with_block(BlockPos::new(x, y - 1, z), |block| if block.is_translucent() {
 			model.yneg.translate(&translation);
 			out.push(model.yneg);
 		});
-		self.with_block(BlockPos::new(x, y + 1, z), |block| if block.is_air() {
+		self.with_block(BlockPos::new(x, y + 1, z), |block| if block.is_translucent() {
 			model.ypos.translate(&translation);
 			out.push(model.ypos);
 		});
 
-		self.with_block(BlockPos::new(x, y, z - 1), |block| if block.is_air() {
+		self.with_block(BlockPos::new(x, y, z - 1), |block| if block.is_translucent() {
 			model.zneg.translate(&translation);
 			out.push(model.zneg);
 		});
-		self.with_block(BlockPos::new(x, y, z + 1), |block| if block.is_air() {
+		self.with_block(BlockPos::new(x, y, z + 1), |block| if block.is_translucent() {
 			model.zpos.translate(&translation);
 			out.push(model.zpos);
 		});

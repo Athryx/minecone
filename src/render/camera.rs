@@ -52,6 +52,11 @@ impl Camera {
 		let z = self.position.z as f64;
 		Position::new(x, y, z)
 	}
+
+	pub fn forward(&self) -> Vector3<f64> {
+		let forward = self.look_at - self.position;
+		Vector3::new(forward.x as f64, forward.y as f64, forward.z as f64)
+	}
 }
 
 #[repr(C)]

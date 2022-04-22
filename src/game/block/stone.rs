@@ -26,4 +26,8 @@ impl Block for Stone {
 	fn model(&self) -> &'static BlockModel {
 		&STONE_MODEL
 	}
+
+	fn is_translucent(&self) -> bool {
+		false
+	}
 }

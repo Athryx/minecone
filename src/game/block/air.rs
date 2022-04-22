@@ -20,4 +20,8 @@ impl Block for Air {
 	fn model(&self) -> &'static BlockModel {
 	    panic!("tried to get the BlockModel of air");
 	}
+
+	fn is_translucent(&self) -> bool {
+		true
+	}
 }

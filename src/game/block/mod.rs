@@ -14,6 +14,8 @@ mod air;
 pub use air::*;
 mod stone;
 pub use stone::*;
+mod test_block;
+pub use test_block::*;
 
 pub type TexPos = Vector2<f64>;
 
@@ -303,6 +305,7 @@ impl BlockModel {
 pub enum BlockType {
 	Air,
 	Stone,
+	TestBlock,
 }
 
 pub trait Block {
@@ -310,6 +313,7 @@ pub trait Block {
 	fn block_type(&self) -> BlockType;
 	// panics if the block is air (or some other block without a blockmodel)
 	fn model(&self) -> &'static BlockModel;
+	fn is_translucent(&self) -> bool;
 
 	fn is_air(&self) -> bool {
 		self.block_type() == BlockType::Air

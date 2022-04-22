@@ -137,6 +137,9 @@ pub trait BlockPosExt {
 	fn is_chunk_local(&self) -> bool;
 	fn make_chunk_local(&self) -> BlockPos;
 	fn into_chunk_pos(&self) -> ChunkPos;
+	// combines into_chunk_pos and make_chunk_local into 1 call
+	fn into_chunk_block_pos(&self) -> (ChunkPos, BlockPos);
+	fn magnitude(&self) -> f64;
 }
 
 impl BlockPosExt for BlockPos {
@@ -153,19 +156,19 @@ impl BlockPosExt for BlockPos {
 		let x = if self.x >= 0 {
 			self.x % CHUNK_SIZE as i64
 		} else {
-			CHUNK_SIZE as i64 + (self.x % CHUNK_SIZE as i64)
+			CHUNK_SIZE as i64 + ((self.x + 1) % CHUNK_SIZE as i64) - 1
 		};
 
 		let y = if self.y >= 0 {
 			self.y % CHUNK_SIZE as i64
 		} else {
-			CHUNK_SIZE as i64 + (self.y % CHUNK_SIZE as i64)
+			CHUNK_SIZE as i64 + ((self.y + 1) % CHUNK_SIZE as i64) - 1
 		};
 
 		let z = if self.z >= 0 {
 			self.z % CHUNK_SIZE as i64
 		} else {
-			CHUNK_SIZE as i64 + (self.z % CHUNK_SIZE as i64)
+			CHUNK_SIZE as i64 + ((self.z + 1) % CHUNK_SIZE as i64) - 1
 		};
 
 		BlockPos::new(x, y, z)
@@ -191,6 +194,17 @@ impl BlockPosExt for BlockPos {
 		};
 
 		ChunkPos::new(x, y, z)
+	}
+
+	fn into_chunk_block_pos(&self) -> (ChunkPos, BlockPos) {
+		(self.into_chunk_pos(), self.make_chunk_local())
+	}
+
+	fn magnitude(&self) -> f64 {
+		let x = self.x as f64;
+		let y = self.y as f64;
+		let z = self.z as f64;
+		(x * x + y * y + z * z).sqrt()
 	}
 }
 

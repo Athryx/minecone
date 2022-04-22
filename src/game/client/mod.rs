@@ -13,7 +13,7 @@ use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
 use super::player::PlayerId;
 use super::world::World;
-use super::block::BlockFace;
+use super::block::{BlockFace, Air};
 
 mod camera_controller;
 
@@ -24,6 +24,8 @@ pub struct Client {
 	player_id: PlayerId,
 	camera_controller: CameraController,
 	renderer: Renderer,
+	// destroy block on the next physics frame
+	destroy_block: bool,
 }
 
 impl Client {
@@ -60,6 +62,7 @@ impl Client {
 			player_id,
 			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 			renderer,
+			destroy_block: false,
 		}
 	}
 
@@ -86,6 +89,16 @@ impl Client {
 
 	pub fn input(&mut self, event: &WindowEvent) {
 		self.camera_controller.process_event(event);
+		if let WindowEvent::KeyboardInput {
+			input: KeyboardInput {
+				state: ElementState::Pressed,
+				virtual_keycode: Some(VirtualKeyCode::Return),
+				..
+			},
+			..
+		} = event {
+			self.destroy_block = true;
+		}
 	}
 
 	pub fn frame_update(&mut self, new_window_size: Option<PhysicalSize<u32>>) {
@@ -98,11 +111,29 @@ impl Client {
 	pub fn physics_update(&mut self, delta: Duration) {
 		let camera = self.renderer.get_camera_mut();
 		self.camera_controller.update_camera(camera, delta);
+		let camera_position = camera.get_position();
 
-		if let Some(result) = self.world.set_player_position(self.player_id, camera.get_position()) {
-			if result {
-				self.generate_mesh()
+		// if it is greater than 0 we will update the mesh
+		let mut generate_mesh = true;
+
+		if self.destroy_block {
+			if let Some(block) = self.world.block_raycast(camera_position, camera.forward(), 15.0) {
+				self.world.set_block(block, Air::new());
+				self.world.mesh_update_adjacent(block);
+				generate_mesh = true;
 			}
+
+			self.destroy_block = false;
+		}
+
+		if let Some(result) = self.world.set_player_position(self.player_id, camera_position) {
+			if result {
+				generate_mesh = true;
+			}
+		}
+
+		if generate_mesh {
+			self.generate_mesh();
 		}
 
 		self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
