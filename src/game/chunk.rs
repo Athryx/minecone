@@ -230,10 +230,10 @@ impl Chunk {
 						break;
 					}
 	
-					if self.get_block(current_block_pos).block_type() == block_type {
+					if !visit_map.is_visited(current_block_pos) && self.get_block(current_block_pos).block_type() == block_type {
 						visit_map.visit(current_block_pos);
 						width += 1;
-					} else {
+					}else {
 						// don't visit a block if it is a different type, we still want to visit later
 						break;
 					}
@@ -271,7 +271,7 @@ impl Chunk {
 							break;
 						}
 	
-						if self.get_block(current_block_pos).block_type() != block_type {
+						if visit_map.is_visited(current_block_pos) || self.get_block(current_block_pos).block_type() != block_type {
 							expandable = false;
 							break;
 						}
@@ -311,26 +311,12 @@ impl Chunk {
 		}
 	}
 
-	// TODO
-	pub fn block_mesh_update_adjacant(&mut self, block: BlockPos) {
-		assert!(block.is_chunk_local());
-		let mut visit_map = VisitedBlockMap::new();
-
-		self.mesh_update_inner(BlockFace::XPos, block.x as usize, &mut visit_map);
-		self.mesh_update_inner(BlockFace::XNeg, block.x as usize, &mut visit_map);
-		self.mesh_update_inner(BlockFace::YPos, block.y as usize, &mut visit_map);
-		self.mesh_update_inner(BlockFace::YNeg, block.y as usize, &mut visit_map);
-		self.mesh_update_inner(BlockFace::ZPos, block.z as usize, &mut visit_map);
-		self.mesh_update_inner(BlockFace::ZNeg, block.z as usize, &mut visit_map);
-	}
-
-	// TODO: figure out how to return iterator
 	pub fn get_chunk_mesh(&self) -> Vec<BlockFaceMesh> {
 		self.chunk_mesh.iter()
-			.flat_map(|a| a.iter())
-			.flat_map(|a| a.iter())
+			.flatten()
+			.flatten()
 			.copied()
-			.collect::<Vec<BlockFaceMesh>>()
+			.collect::<Vec<_>>()
 	}
 }
 

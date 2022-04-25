@@ -118,21 +118,6 @@ impl World {
 		}
 	}
 
-	// performs a block mesh update on all blocke between min_block inclusive and max_block exclusive
-	pub fn mesh_update(&self, min_block: BlockPos, max_block: BlockPos) {
-		/*let chunks = self.chunks.borrow();
-		for x in min_block.x..max_block.x {
-			for y in min_block.y..max_block.y {
-				for z in min_block.z..max_block.z {
-					let block = BlockPos::new(x, y, z);
-					if let Some(chunk) = chunks.get(&block.into_chunk_pos()) {
-						chunk.borrow_mut().chunk.mesh_update(block.make_chunk_local());
-					}
-				}
-			}
-		}*/
-	}
-
 	// performs mesh updates on the passed in block as well as all adjacent blocks
 	pub fn mesh_update_adjacent(&self, block: BlockPos) {
 		let chunks = self.chunks.borrow();
@@ -176,7 +161,27 @@ impl World {
 		}
 	}
 
+	// performs a mesh update on 1 side of the chunk for all specified chunks
 	pub fn chunk_mesh_update_face(&self, face: BlockFace, min_chunk: ChunkPos, max_chunk: ChunkPos) {
+		let chunks = self.chunks.borrow();
+		let mut visit_map = VisitedBlockMap::new();
+
+		for x in min_chunk.x..max_chunk.x {
+			for y in min_chunk.y..max_chunk.y {
+				for z in min_chunk.z..max_chunk.z {
+					let chunk_pos = BlockPos::new(x, y, z);
+					if let Some(chunk) = chunks.get(&chunk_pos) {
+						let index = if face.is_positive_face() {
+							CHUNK_SIZE - 1
+						} else {
+							0
+						};
+
+						chunk.borrow_mut().chunk.mesh_update_inner(face, index, &mut visit_map);
+					}
+				}
+			}
+		}
 	}
 
 	#[inline]
@@ -215,6 +220,7 @@ impl World {
 	// casts a ray starting at ray_start up to a length of max_length
 	// if a block other than air is found, the coordinates are returned, otherwise None is returned
 	// if the ray ever intersects with an empty chunk, None is returned
+	// FIXME: ugly
 	pub fn block_raycast(&self, ray_start: Position, ray: Vector3<f64>, max_length: f64) -> Option<BlockPos> {
 		let ray = ray.normalize();
 		let block_start_pos = ray_start.into_block_pos();
@@ -294,6 +300,7 @@ impl World {
 	// TODO: allow changing from more than 1 chunk at at a time
 	// TODO: when going along diaganols, sometimes chunks are loaded and immediately unloaded
 	// TEMP: returns true if mesh has changed
+	// FIXME: ugly
 	pub fn set_player_position(&self, player_id: PlayerId, position: Position) -> Option<bool> {
 		let mut players = self.players.borrow_mut();
 		let player = players.get_mut(&player_id)?;
@@ -318,6 +325,7 @@ impl World {
 
 				self.unload_chunks(neg_min_chunk, neg_max_chunk);
 				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update_face(BlockFace::XPos, neg_min_chunk - BlockPos::new(1, 0, 0), neg_max_chunk - BlockPos::new(1, 0, 0));
 
 				self.load_chunks(pos_min_chunk, pos_max_chunk);
 				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
@@ -327,6 +335,7 @@ impl World {
 
 				self.unload_chunks(pos_min_chunk, pos_max_chunk);
 				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update_face(BlockFace::XNeg, neg_min_chunk + BlockPos::new(1, 0, 0), neg_max_chunk + BlockPos::new(1, 0, 0));
 
 				self.load_chunks(neg_min_chunk, neg_max_chunk);
 				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
@@ -350,6 +359,7 @@ impl World {
 
 				self.unload_chunks(neg_min_chunk, neg_max_chunk);
 				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update_face(BlockFace::YPos, neg_min_chunk - BlockPos::new(0, 1, 0), neg_max_chunk - BlockPos::new(0, 1, 0));
 
 				self.load_chunks(pos_min_chunk, pos_max_chunk);
 				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
@@ -359,6 +369,7 @@ impl World {
 
 				self.unload_chunks(pos_min_chunk, pos_max_chunk);
 				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update_face(BlockFace::YNeg, neg_min_chunk + BlockPos::new(0, 1, 0), neg_max_chunk + BlockPos::new(0, 1, 0));
 
 				self.load_chunks(neg_min_chunk, neg_max_chunk);
 				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
@@ -382,6 +393,7 @@ impl World {
 
 				self.unload_chunks(neg_min_chunk, neg_max_chunk);
 				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+				self.chunk_mesh_update_face(BlockFace::ZPos, neg_min_chunk - BlockPos::new(0, 0, 1), neg_max_chunk - BlockPos::new(0, 0, 1));
 
 				self.load_chunks(pos_min_chunk, pos_max_chunk);
 				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
@@ -391,6 +403,7 @@ impl World {
 
 				self.unload_chunks(pos_min_chunk, pos_max_chunk);
 				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+				self.chunk_mesh_update_face(BlockFace::ZNeg, neg_min_chunk + BlockPos::new(0, 0, 1), neg_max_chunk + BlockPos::new(0, 0, 1));
 
 				self.load_chunks(neg_min_chunk, neg_max_chunk);
 				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);

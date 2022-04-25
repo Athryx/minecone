@@ -59,6 +59,14 @@ impl BlockFace {
 			Self::ZNeg => BlockPos::new(0, 0, -1),
 		}
 	}
+
+	pub fn is_positive_face(&self) -> bool {
+		matches!(self, Self::XPos | Self::YPos | Self::ZPos)
+	}
+
+	pub fn is_negative_face(&self) -> bool {
+		matches!(self, Self::XNeg | Self::YNeg | Self::ZNeg)
+	}
 }
 
 impl From<BlockFace> for usize {
