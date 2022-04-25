@@ -1,5 +1,8 @@
 #![feature(once_cell)]
 #![feature(const_fn_floating_point_arithmetic)]
+#![feature(let_chains)]
+
+#![warn(clippy::disallowed_types)]
 
 #[macro_use]
 extern crate log;

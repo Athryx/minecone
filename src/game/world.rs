@@ -1,19 +1,19 @@
 use std::{
-	collections::{VecDeque, HashMap},
 	fs::{File, OpenOptions},
 	path::Path,
 	rc::{Rc, Weak},
 	cell::RefCell, time::Duration,
 };
 
+use rustc_hash::FxHashMap;
 use winit::event::WindowEvent;
 use nalgebra::Vector3;
 use anyhow::Result;
 
 use super::{
-	chunk::{Chunk, LoadedChunk, ChunkData},
+	chunk::{Chunk, LoadedChunk, ChunkData, VisitedBlockMap},
 	entity::Entity,
-	block::{BlockFace, Block, Stone},
+	block::{BlockFaceMesh, BlockFace, Block, Stone},
 	worldgen::WorldGenerator,
 	player::{Player, PlayerId}, CHUNK_SIZE,
 };
@@ -26,10 +26,10 @@ pub const WORLD_MAX_SIZE: Vector3<u64> = Vector3::new(512, 64, 512);
 
 pub struct World {
 	self_weak: Weak<Self>,
-	players: RefCell<HashMap<PlayerId, Player>>,
+	players: RefCell<FxHashMap<PlayerId, Player>>,
 	entities: RefCell<Vec<Box<dyn Entity>>>,
-	pub chunks: RefCell<HashMap<ChunkPos, RefCell<LoadedChunk>>>,
-	cached_chunks: RefCell<HashMap<ChunkPos, ChunkData>>,
+	pub chunks: RefCell<FxHashMap<ChunkPos, RefCell<LoadedChunk>>>,
+	cached_chunks: RefCell<FxHashMap<ChunkPos, ChunkData>>,
 	world_generator: WorldGenerator,
 	// backing file of the world
 	file: File,
@@ -44,10 +44,10 @@ impl World {
 
 		Ok(Rc::new_cyclic(|weak| Self {
 			self_weak: weak.clone(),
-			players: RefCell::new(HashMap::new()),
+			players: RefCell::new(FxHashMap::default()),
 			entities: RefCell::new(Vec::new()),
-			chunks: RefCell::new(HashMap::new()),
-			cached_chunks: RefCell::new(HashMap::new()),
+			chunks: RefCell::new(FxHashMap::default()),
+			cached_chunks: RefCell::new(FxHashMap::default()),
 			world_generator: WorldGenerator::new(),
 			file,
 		}))
@@ -62,10 +62,10 @@ impl World {
 
 		let out = Rc::new_cyclic(|weak| Self {
 			self_weak: weak.clone(),
-			players: RefCell::new(HashMap::new()),
+			players: RefCell::new(FxHashMap::default()),
 			entities: RefCell::new(Vec::new()),
-			chunks: RefCell::new(HashMap::new()),
-			cached_chunks: RefCell::new(HashMap::new()),
+			chunks: RefCell::new(FxHashMap::default()),
+			cached_chunks: RefCell::new(FxHashMap::default()),
 			world_generator: WorldGenerator::new(),
 			file,
 		});
@@ -120,7 +120,7 @@ impl World {
 
 	// performs a block mesh update on all blocke between min_block inclusive and max_block exclusive
 	pub fn mesh_update(&self, min_block: BlockPos, max_block: BlockPos) {
-		let chunks = self.chunks.borrow();
+		/*let chunks = self.chunks.borrow();
 		for x in min_block.x..max_block.x {
 			for y in min_block.y..max_block.y {
 				for z in min_block.z..max_block.z {
@@ -130,29 +130,36 @@ impl World {
 					}
 				}
 			}
-		}
+		}*/
 	}
 
 	// performs mesh updates on the passed in block as well as all adjacent blocks
 	pub fn mesh_update_adjacent(&self, block: BlockPos) {
 		let chunks = self.chunks.borrow();
 
-		let mesh_update_block = |b: BlockPos| {
-			if let Some(chunk) = chunks.get(&b.into_chunk_pos()) {
-				chunk.borrow_mut().chunk.mesh_update(b.make_chunk_local());
-			}
-		};
+		let block_chunk_local = block.as_chunk_local();
+		let mut visit_map = VisitedBlockMap::new();
 
-		mesh_update_block(block);
-		mesh_update_block(block + BlockPos::new(1, 0, 0));
-		mesh_update_block(block + BlockPos::new(-1, 0, 0));
-		mesh_update_block(block + BlockPos::new(0, 1, 0));
-		mesh_update_block(block + BlockPos::new(0, -1, 0));
-		mesh_update_block(block + BlockPos::new(0, 0, 1));
-		mesh_update_block(block + BlockPos::new(0, 0, -1));
+		if let Some(chunk) = chunks.get(&block.as_chunk_pos()) {
+			let mut chunk = chunk.borrow_mut();
+			chunk.chunk.mesh_update_inner(BlockFace::XPos, block_chunk_local.x as usize, &mut visit_map);
+			chunk.chunk.mesh_update_inner(BlockFace::XNeg, block_chunk_local.x as usize, &mut visit_map);
+			chunk.chunk.mesh_update_inner(BlockFace::YPos, block_chunk_local.y as usize, &mut visit_map);
+			chunk.chunk.mesh_update_inner(BlockFace::YNeg, block_chunk_local.y as usize, &mut visit_map);
+			chunk.chunk.mesh_update_inner(BlockFace::ZPos, block_chunk_local.z as usize, &mut visit_map);
+			chunk.chunk.mesh_update_inner(BlockFace::ZNeg, block_chunk_local.z as usize, &mut visit_map);
+		}
+
+		for face in BlockFace::iter() {
+			// subtract to get opposite as normal offest
+			let offset_block = block - face.block_pos_offset();
+			if let Some(chunk) = chunks.get(&offset_block.as_chunk_pos()) {
+				chunk.borrow_mut().chunk.mesh_update_inner(face,
+					offset_block.as_chunk_local().get_face_component(face) as usize, &mut visit_map);
+			}
+		}
 	}
 
-	// FIXME: this is ugly
 	pub fn chunk_mesh_update(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
 		let chunks = self.chunks.borrow();
 
@@ -162,27 +169,23 @@ impl World {
 					let chunk_pos = ChunkPos::new(x, y, z);
 
 					if let Some(chunk) = chunks.get(&chunk_pos) {
-						let mut chunk = chunk.borrow_mut();
-						for x in 0..CHUNK_SIZE as i64 {
-							for y in 0..CHUNK_SIZE as i64 {
-								for z in 0..CHUNK_SIZE as i64 {
-									chunk.chunk.mesh_update(BlockPos::new(x, y, z));
-								}
-							}
-						}
+						chunk.borrow_mut().chunk.chunk_mesh_update();
 					}
 				}
 			}
 		}
 	}
 
+	pub fn chunk_mesh_update_face(&self, face: BlockFace, min_chunk: ChunkPos, max_chunk: ChunkPos) {
+	}
+
 	#[inline]
 	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&dyn Block) -> T {
-		let (chunk_position, block) = block.into_chunk_block_pos();
+		let (chunk_position, block) = block.as_chunk_block_pos();
 
 		Some(f(self.chunks.borrow().get(&chunk_position)?
-			.borrow().chunk.get_block(block.make_chunk_local())))
+			.borrow().chunk.get_block(block.as_chunk_local())))
 	}
 
 	// calls the function on the given block position
@@ -190,15 +193,15 @@ impl World {
 	#[inline]
 	fn with_block_mut<T, F>(&mut self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&mut dyn Block) -> T {
-		let (chunk_position, block) = block.into_chunk_block_pos();
+		let (chunk_position, block) = block.as_chunk_block_pos();
 
 		Some(f(self.chunks.borrow().get(&chunk_position)?
-			.borrow_mut().chunk.get_block_mut(block.make_chunk_local())))
+			.borrow_mut().chunk.get_block_mut(block.as_chunk_local())))
 	}
 
 	// sets the block at BlockPos, returns bool on success
 	pub fn set_block(&self, block_pos: BlockPos, block: Box<dyn Block>) -> bool {
-		let (chunk_pos, block_pos) = block_pos.into_chunk_block_pos();
+		let (chunk_pos, block_pos) = block_pos.as_chunk_block_pos();
 
 		let chunks = self.chunks.borrow();
 		if let Some(chunk) = chunks.get(&chunk_pos) {
@@ -402,11 +405,9 @@ impl World {
 		Some(out)
 	}
 
-	pub fn world_mesh(&self) -> Vec<BlockFace> {
-		let out = self.chunks.borrow().iter()
-			.map(|(_, c)| c.borrow().chunk.get_block_mesh())
-			.flatten()
-			.collect::<Vec<_>>();
-		out
+	pub fn world_mesh(&self) -> Vec<BlockFaceMesh> {
+		self.chunks.borrow().iter()
+			.flat_map(|(_, c)| c.borrow().chunk.get_chunk_mesh())
+			.collect::<Vec<_>>()
 	}
 }

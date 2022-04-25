@@ -38,7 +38,7 @@ impl Camera {
 		let view = Matrix4::look_at_rh(&self.position, &self.look_at, &self.up);
 		let proj = Matrix4::new_perspective(self.aspect_ratio, self.fovy, self.znear, self.zfar);
 
-		return TO_GPU_MATRIX * proj * view;
+		TO_GPU_MATRIX * proj * view
 	}
 
 	// gets a camera uniform which can be sent to the gpu

@@ -1,7 +1,7 @@
 use std::path::{PathBuf, Path};
 use std::fs;
 use std::lazy::SyncLazy;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -19,14 +19,14 @@ pub fn loader() -> &'static AssetLoader {
 // this is realy basic for now, may be improved in future
 pub struct AssetLoader {
 	resource_folder: PathBuf,
-	cached_models: RwLock<HashMap<PathBuf, Arc<Model>>>,
+	cached_models: RwLock<FxHashMap<PathBuf, Arc<Model>>>,
 }
 
 impl AssetLoader {
 	fn from_path(resource_folder: PathBuf) -> Self {
 		Self {
 			resource_folder,
-			cached_models: RwLock::new(HashMap::new()),
+			cached_models: RwLock::new(FxHashMap::default()),
 		}
 	}
 

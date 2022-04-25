@@ -8,7 +8,7 @@ pub struct Player {
 }
 
 impl Player {
-	pub fn new(position: Vector3<f64>) -> Box<dyn Entity> {
+	pub fn new(position: Position) -> Box<dyn Entity> {
 		Box::new(Player {
 			position
 		})

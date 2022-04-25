@@ -1,10 +1,10 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
+use array_init::array_init;
 use nalgebra::Translation3;
 
-use super::block::{Block, BlockFace};
+use super::block::{Block, BlockFaceMesh, BlockFace};
 // TEMP
 use super::block::{Air, Stone};
 use super::entity::Entity;
@@ -15,6 +15,75 @@ use crate::array3d_init;
 
 pub const CHUNK_SIZE: usize = 32;
 
+// says all blocks that have been visited for the greedy meshing algorithm in a given layer
+pub struct VisitedBlockMap {
+	data: Vec<bool>,
+	face: BlockFace,
+	coord3: i64,
+}
+
+impl VisitedBlockMap {
+	// the face and coord3 are used to return the correct number in the unused coordinate of the 3rd vector
+	// face and coord3 should be set according to the current slice we are iterating over
+	pub fn new() -> Self {
+		VisitedBlockMap {
+			data: vec![false; CHUNK_SIZE * CHUNK_SIZE],
+			face: BlockFace::XPos,
+			coord3: 0,
+		}
+	}
+
+	fn get_index(&self, position: BlockPos) -> usize {
+		let (x, y) = match self.face {
+			BlockFace::XPos | BlockFace::XNeg => (position.y, position.z),
+			BlockFace::YPos | BlockFace::YNeg => (position.x, position.z),
+			BlockFace::ZPos | BlockFace::ZNeg => (position.x, position.y),
+		};
+		let x: usize = x.try_into().unwrap();
+		let y: usize = y.try_into().unwrap();
+		x * CHUNK_SIZE + y
+	}
+	
+	fn get_block_pos_index(&self, index: usize) -> BlockPos {
+		let x = (index / CHUNK_SIZE) as i64;
+		let y = (index % CHUNK_SIZE) as i64;
+		self.get_block_pos(x, y)
+	}
+
+	fn get_block_pos(&self, x: i64, y: i64) -> BlockPos {
+		match self.face {
+			BlockFace::XPos | BlockFace::XNeg => BlockPos::new(self.coord3, x, y),
+			BlockFace::YPos | BlockFace::YNeg => BlockPos::new(x, self.coord3, y),
+			BlockFace::ZPos | BlockFace::ZNeg => BlockPos::new(x, y, self.coord3),
+		}
+	}
+
+	fn get_block_pos_offset(&self, block: BlockPos, x_offset: i64, y_offset: i64) -> BlockPos {
+		match self.face {
+			BlockFace::XPos | BlockFace::XNeg => BlockPos::new(self.coord3, block.y + x_offset, block.z + y_offset),
+			BlockFace::YPos | BlockFace::YNeg => BlockPos::new(block.x + x_offset, self.coord3, block.z + y_offset),
+			BlockFace::ZPos | BlockFace::ZNeg => BlockPos::new(block.x + x_offset, block.y + y_offset, self.coord3),
+		}
+	}
+
+	fn is_visited(&self, position: BlockPos) -> bool {
+		self.data[self.get_index(position)]
+	}
+
+	fn visit(&mut self, position: BlockPos) {
+		let index = self.get_index(position);
+		self.data[index] = true;
+	}
+
+	fn reset(&mut self, face: BlockFace, coord3: i64) {
+		for n in self.data.iter_mut() {
+			*n = false;
+		}
+		self.face = face;
+		self.coord3 = coord3;
+	}
+}
+
 pub struct Chunk {
 	world: Rc<World>,
 	// position of back bottom left corner of chunk in block coordinates
@@ -22,9 +91,12 @@ pub struct Chunk {
 	position: Position,
 	// coordinates of chunk, increases in incraments of 1
 	chunk_position: ChunkPos,
+	// coordinates of bottom left back block in world space
+	block_position: BlockPos,
 	// store them on heap to avoid stack overflow
 	blocks: Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
-	chunk_mesh: HashMap<BlockPos, Vec<BlockFace>>,
+	//chunk_mesh: HashMap<BlockPos, Vec<BlockFaceMesh>>,
+	chunk_mesh: Box<[[Vec<BlockFaceMesh>; CHUNK_SIZE]; 6]>,
 }
 
 impl Chunk {
@@ -43,8 +115,9 @@ impl Chunk {
 			world,
 			position: Position::new(x, y, z),
 			chunk_position: position,
+			block_position: position * CHUNK_SIZE as i64,
 			blocks,
-			chunk_mesh: HashMap::new(),
+			chunk_mesh: Box::new(array_init(|_| array_init(|_| Vec::new()))),
 		}
 	}
 
@@ -56,8 +129,9 @@ impl Chunk {
 			world,
 			position: Position::new(x, y, z),
 			chunk_position: position,
+			block_position: position * CHUNK_SIZE as i64,
 			blocks: Box::new(array3d_init!(Air::new())),
-			chunk_mesh: HashMap::new(),
+			chunk_mesh: Box::new(array_init(|_| array_init(|_| Vec::new()))),
 		}
 	}
 
@@ -69,11 +143,11 @@ impl Chunk {
 		if block.is_chunk_local() {
 			Some(f(self.get_block(block)))
 		} else {
-			let chunk_position = block.into_chunk_pos() + self.chunk_position;
+			let chunk_position = block.as_chunk_pos() + self.chunk_position;
 
 			Some(f(self.world
 				.chunks.borrow().get(&chunk_position)?.borrow()
-				.chunk.get_block(block.make_chunk_local())))
+				.chunk.get_block(block.as_chunk_local())))
 		}
 	}
 
@@ -85,11 +159,11 @@ impl Chunk {
 		if block.is_chunk_local() {
 			Some(f(self.get_block_mut(block)))
 		} else {
-			let chunk_position = block.into_chunk_pos() + self.chunk_position;
+			let chunk_position = block.as_chunk_pos() + self.chunk_position;
 
 			Some(f(self.world
 				.chunks.borrow().get(&chunk_position)?.borrow_mut()
-				.chunk.get_block_mut(block.make_chunk_local())))
+				.chunk.get_block_mut(block.as_chunk_local())))
 		}
 	}
 
@@ -115,68 +189,148 @@ impl Chunk {
 		self.blocks[block_pos.x as usize][block_pos.y as usize][block_pos.z as usize] = block;
 	}
 
-	// performs a mesh update on the given block
-	pub fn mesh_update(&mut self, block_pos: BlockPos) {
-		assert!(block_pos.is_chunk_local());
+	// the visit map is passed in seperately to avoid having to reallocat the memory for the visit map every time	
+	pub fn mesh_update_inner(&mut self, face: BlockFace, index: usize, visit_map: &mut VisitedBlockMap) {
+		visit_map.reset(face, index as i64);
+		self.chunk_mesh[Into::<usize>::into(face)][index].clear();
 
-		let x = block_pos.x;
-		let y = block_pos.y;
-		let z = block_pos.z;
+		for x in 0..CHUNK_SIZE as i64 {
+			for y in 0..CHUNK_SIZE as i64 {
+				let block_pos = visit_map.get_block_pos(x, y);
+				if visit_map.is_visited(block_pos) {
+					continue;
+				}
 
-		let block = self.get_block(block_pos);
-
-		if block.is_air() {
-			self.chunk_mesh.remove(&block_pos);
-			return;
-		}
-
-		let mut model = block.model().clone();
-		// translate only the faces we need to, no the whole model
-		let translation = Translation3::new(
-			self.position.x + x as f64,
-			self.position.y + y as f64,
-			self.position.z + z as f64
-		);
-
-		let mut out = Vec::new();
-
-		self.with_block(BlockPos::new(x - 1, y, z), |block| if block.is_translucent() {
-			model.xneg.translate(&translation);
-			out.push(model.xneg);
-		});
-		self.with_block(BlockPos::new(x + 1, y, z), |block| if block.is_translucent() {
-			model.xpos.translate(&translation);
-			out.push(model.xpos);
-		});
-
-		self.with_block(BlockPos::new(x, y - 1, z), |block| if block.is_translucent() {
-			model.yneg.translate(&translation);
-			out.push(model.yneg);
-		});
-		self.with_block(BlockPos::new(x, y + 1, z), |block| if block.is_translucent() {
-			model.ypos.translate(&translation);
-			out.push(model.ypos);
-		});
-
-		self.with_block(BlockPos::new(x, y, z - 1), |block| if block.is_translucent() {
-			model.zneg.translate(&translation);
-			out.push(model.zneg);
-		});
-		self.with_block(BlockPos::new(x, y, z + 1), |block| if block.is_translucent() {
-			model.zpos.translate(&translation);
-			out.push(model.zpos);
-		});
-
-		if !out.is_empty() {
-			self.chunk_mesh.insert(block_pos, out);
-		} else {
-			self.chunk_mesh.remove(&block_pos);
+				let block = self.get_block(block_pos);
+				if block.is_air() {
+					visit_map.visit(block_pos);
+					continue;
+				}
+	
+				let block_type = block.block_type();
+	
+				// width and height of the greedy mesh region
+				let mut width = 0;
+				let mut height = 0;
+	
+				loop {
+					let current_block_pos = visit_map.get_block_pos_offset(block_pos, width, 0);
+					// get_block_pos_offset could put current block out of bounds
+					if !current_block_pos.is_chunk_local() {
+						break;
+					}
+	
+					if let Some(is_translucent) = self.with_block(current_block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
+						if !is_translucent {
+							visit_map.visit(current_block_pos);
+							break;
+						}
+					} else {
+						visit_map.visit(current_block_pos);
+						break;
+					}
+	
+					if self.get_block(current_block_pos).block_type() == block_type {
+						visit_map.visit(current_block_pos);
+						width += 1;
+					} else {
+						// don't visit a block if it is a different type, we still want to visit later
+						break;
+					}
+				}
+	
+				if width == 0 {
+					continue;
+				}
+	
+				height += 1;
+	
+				loop {
+					// can we expand the height of the mesh
+					let mut expandable = true;
+	
+					for w in 0..width {
+						let current_block_pos = visit_map.get_block_pos_offset(block_pos, w, height);
+						// get_block_pos_offset could put current block out of bounds
+						if !current_block_pos.is_chunk_local() {
+							// if we can't test all of the blocks, we can't expand the region
+							expandable = false;
+							break;
+						}
+	
+						// we want to visit these blocks even if they fail because it means they would never generate a mesh anyways
+						if let Some(is_translucent) = self.with_block(current_block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
+							if !is_translucent {
+								visit_map.visit(current_block_pos);
+								expandable = false;
+								break;
+							}
+						} else {
+							visit_map.visit(current_block_pos);
+							expandable = false;
+							break;
+						}
+	
+						if self.get_block(current_block_pos).block_type() != block_type {
+							expandable = false;
+							break;
+						}
+					}
+	
+					if !expandable {
+						break;
+					}
+	
+					for w in 0..width {
+						visit_map.visit(visit_map.get_block_pos_offset(block_pos, w, height));
+					}
+	
+					height += 1;
+				}
+	
+				let block_face_mesh = BlockFaceMesh::from_cube_corners(
+					face,
+					block.model().get_face(face),
+					block_pos + self.block_position,
+					visit_map.get_block_pos_offset(block_pos, width - 1, height - 1) + self.block_position,
+				);
+	
+				self.chunk_mesh[Into::<usize>::into(face)][index].push(block_face_mesh);
+			}
 		}
 	}
 
-	// TEMP
-	pub fn get_block_mesh(&self) -> Vec<BlockFace> {
-		self.chunk_mesh.iter().map(|(_, v)| v.iter().map(|b| *b)).flatten().collect::<Vec<_>>()
+	// updates the mesh for the entire chunk
+	pub fn chunk_mesh_update(&mut self) {
+		let mut visit_map = VisitedBlockMap::new();
+
+		for face in BlockFace::iter() {
+			for i in 0..CHUNK_SIZE {
+				self.mesh_update_inner(face, i, &mut visit_map);
+			}
+		}
+	}
+
+	// TODO
+	pub fn block_mesh_update_adjacant(&mut self, block: BlockPos) {
+		assert!(block.is_chunk_local());
+		let mut visit_map = VisitedBlockMap::new();
+
+		self.mesh_update_inner(BlockFace::XPos, block.x as usize, &mut visit_map);
+		self.mesh_update_inner(BlockFace::XNeg, block.x as usize, &mut visit_map);
+		self.mesh_update_inner(BlockFace::YPos, block.y as usize, &mut visit_map);
+		self.mesh_update_inner(BlockFace::YNeg, block.y as usize, &mut visit_map);
+		self.mesh_update_inner(BlockFace::ZPos, block.z as usize, &mut visit_map);
+		self.mesh_update_inner(BlockFace::ZNeg, block.z as usize, &mut visit_map);
+	}
+
+	// TODO: figure out how to return iterator
+	pub fn get_chunk_mesh(&self) -> Vec<BlockFaceMesh> {
+		self.chunk_mesh.iter()
+			.flat_map(|a| a.iter())
+			.flat_map(|a| a.iter())
+			.copied()
+			.collect::<Vec<BlockFaceMesh>>()
 	}
 }
 

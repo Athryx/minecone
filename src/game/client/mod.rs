@@ -13,7 +13,7 @@ use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
 use super::player::PlayerId;
 use super::world::World;
-use super::block::{BlockFace, Air};
+use super::block::{BlockFaceMesh, Air};
 
 mod camera_controller;
 
@@ -43,7 +43,7 @@ impl Client {
 		let mut current_index = 0;
 		for block_face in world.world_mesh() {
 			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
-			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
+			indexes.extend(BlockFaceMesh::indicies().iter().map(|elem| elem + current_index));
 			current_index += 4;
 		}
 
@@ -73,7 +73,7 @@ impl Client {
 		let mut current_index = 0;
 		for block_face in self.world.world_mesh() {
 			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
-			indexes.extend(BlockFace::indicies().iter().map(|elem| elem + current_index));
+			indexes.extend(BlockFaceMesh::indicies().iter().map(|elem| elem + current_index));
 			current_index += 4;
 		}
 
@@ -114,7 +114,7 @@ impl Client {
 		let camera_position = camera.get_position();
 
 		// if it is greater than 0 we will update the mesh
-		let mut generate_mesh = true;
+		let mut generate_mesh = false;
 
 		if self.destroy_block {
 			if let Some(block) = self.world.block_raycast(camera_position, camera.forward(), 15.0) {

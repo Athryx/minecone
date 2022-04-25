@@ -1,7 +1,9 @@
+// TODO: change this module position
 use std::ops::Deref;
 
 use nalgebra::{Vector2, Vector3, Vector4};
 use crate::game::CHUNK_SIZE;
+use crate::game::BlockFace;
 
 pub type ChunkPos = Vector3<i64>;
 pub type BlockPos = Vector3<i64>;
@@ -121,11 +123,11 @@ impl<T: Copy + Default> XZonly for Vector4<T> {
 
 pub trait ChunkPosExt {
 	// returns the BlockPos of the bottom left corner
-	fn into_block_pos(&self) -> BlockPos;
+	fn into_block_pos(self) -> BlockPos;
 }
 
 impl ChunkPosExt for ChunkPos {
-	fn into_block_pos(&self) -> BlockPos {
+	fn into_block_pos(self) -> BlockPos {
 		let x = self.x * CHUNK_SIZE as i64;
 		let y = self.y * CHUNK_SIZE as i64;
 		let z = self.z * CHUNK_SIZE as i64;
@@ -135,11 +137,13 @@ impl ChunkPosExt for ChunkPos {
 
 pub trait BlockPosExt {
 	fn is_chunk_local(&self) -> bool;
-	fn make_chunk_local(&self) -> BlockPos;
-	fn into_chunk_pos(&self) -> ChunkPos;
+	fn as_chunk_local(&self) -> BlockPos;
+	fn as_chunk_pos(&self) -> ChunkPos;
 	// combines into_chunk_pos and make_chunk_local into 1 call
-	fn into_chunk_block_pos(&self) -> (ChunkPos, BlockPos);
+	fn as_chunk_block_pos(&self) -> (ChunkPos, BlockPos);
 	fn magnitude(&self) -> f64;
+	// gets the component of the vector corresponding with the specified block face
+	fn get_face_component(&self, face: BlockFace) -> i64;
 }
 
 impl BlockPosExt for BlockPos {
@@ -152,7 +156,7 @@ impl BlockPosExt for BlockPos {
 			&& self.z < CHUNK_SIZE as i64
 	}
 
-	fn make_chunk_local(&self) -> BlockPos {
+	fn as_chunk_local(&self) -> BlockPos {
 		let x = if self.x >= 0 {
 			self.x % CHUNK_SIZE as i64
 		} else {
@@ -174,7 +178,7 @@ impl BlockPosExt for BlockPos {
 		BlockPos::new(x, y, z)
 	}
 
-	fn into_chunk_pos(&self) -> ChunkPos {
+	fn as_chunk_pos(&self) -> ChunkPos {
 		let x = if self.x > 0 {
 			self.x / CHUNK_SIZE as i64
 		} else {
@@ -196,8 +200,8 @@ impl BlockPosExt for BlockPos {
 		ChunkPos::new(x, y, z)
 	}
 
-	fn into_chunk_block_pos(&self) -> (ChunkPos, BlockPos) {
-		(self.into_chunk_pos(), self.make_chunk_local())
+	fn as_chunk_block_pos(&self) -> (ChunkPos, BlockPos) {
+		(self.as_chunk_pos(), self.as_chunk_local())
 	}
 
 	fn magnitude(&self) -> f64 {
@@ -205,6 +209,14 @@ impl BlockPosExt for BlockPos {
 		let y = self.y as f64;
 		let z = self.z as f64;
 		(x * x + y * y + z * z).sqrt()
+	}
+
+	fn get_face_component(&self, face: BlockFace) -> i64 {
+		match face {
+			BlockFace::XPos | BlockFace::XNeg => self.x,
+			BlockFace::YPos | BlockFace::YNeg => self.y,
+			BlockFace::ZPos | BlockFace::ZNeg => self.z,
+		}
 	}
 }
 
@@ -219,6 +231,6 @@ impl PositionExt for Position {
 	}
 
 	fn into_chunk_pos(&self) -> ChunkPos{
-		self.into_block_pos().into_chunk_pos()
+		self.into_block_pos().as_chunk_pos()
 	}
 }

@@ -782,6 +782,7 @@ dependencies = [
  "parking_lot 0.12.0",
  "pollster",
  "pretty_env_logger",
+ "rustc-hash",
  "tobj",
  "wgpu",
  "winit",
