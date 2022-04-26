@@ -135,13 +135,15 @@ const fn vec_add(a: Position, b: Position) -> Position {
 pub struct BlockVertex {
 	position: Position,
 	tex_coord: TexPos,
+	normal: Vector3<f32>,
 }
 
 impl BlockVertex {
-	pub const fn new(position: Position, tex_coord: TexPos) -> Self {
+	pub const fn new(position: Position, tex_coord: TexPos, normal: Vector3<f32>) -> Self {
 		Self {
 			position,
 			tex_coord,
+			normal,
 		}
 	}
 }
@@ -151,7 +153,7 @@ impl From<BlockVertex> for ModelVertex {
 		ModelVertex {
 			position: [vertex.position.x as f32, vertex.position.y as f32, vertex.position.z as f32],
 			tex_coords: [vertex.tex_coord.x as f32, vertex.tex_coord.y as f32],
-			normal: [0.0, 0.0, 0.0],
+			normal: [vertex.normal.x, vertex.normal.y, vertex.normal.z],
 		}
 	}
 }
@@ -213,11 +215,20 @@ impl BlockFaceMesh {
 			),
 		};
 
+		let normal = match face {
+			BlockFace::XPos => Vector3::new(1.0, 0.0, 0.0),
+			BlockFace::XNeg => Vector3::new(-1.0, 0.0, 0.0),
+			BlockFace::YPos => Vector3::new(0.0, 1.0, 0.0),
+			BlockFace::YNeg => Vector3::new(0.0, -1.0, 0.0),
+			BlockFace::ZPos => Vector3::new(0.0, 0.0, 1.0),
+			BlockFace::ZNeg => Vector3::new(0.0, 0.0, -1.0),
+		};
+
 		Self([
-			 BlockVertex::new(tl_corner, segment.tl()),
-			 BlockVertex::new(bl_corner, segment.bl()),
-			 BlockVertex::new(br_corner, segment.br()),
-			 BlockVertex::new(tr_corner, segment.tr()),
+			 BlockVertex::new(tl_corner, segment.tl(), normal),
+			 BlockVertex::new(bl_corner, segment.bl(), normal),
+			 BlockVertex::new(br_corner, segment.br(), normal),
+			 BlockVertex::new(tr_corner, segment.tr(), normal),
 		])
 	}
 

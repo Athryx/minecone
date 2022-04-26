@@ -53,11 +53,14 @@ impl Renderer {
 				force_fallback_adapter: false,
 			},
 		).await.unwrap();
-
+		
 		let (device, queue) = adapter.request_device(
 			&wgpu::DeviceDescriptor {
 				features: wgpu::Features::empty(),
-				limits: wgpu::Limits::default(),
+				limits: wgpu::Limits {
+					max_texture_array_layers: 256,
+					..Default::default()
+				},
 				label: None,
 			},
 			None,
@@ -95,12 +98,6 @@ impl Renderer {
 				],
 			}
 		);
-
-		let render_context = RenderContext {
-			queue: &queue,
-			device: &device,
-			texture_bind_layout: &texture_bind_group_layout,
-		};
 
 		let depth_texture = Texture::create_depth_texture(&device, &config, "depth texture");
 
