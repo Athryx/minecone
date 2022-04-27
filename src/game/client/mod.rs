@@ -114,7 +114,6 @@ impl Client {
 		self.camera_controller.update_camera(camera, delta);
 		let camera_position = camera.get_position();
 
-		// if it is greater than 0 we will update the mesh
 		let mut generate_mesh = false;
 
 		if self.destroy_block {

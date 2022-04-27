@@ -48,21 +48,40 @@ fn wrap_pos(n: f32) -> f32 {
 
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-	var x_sample: f32;
-	var y_sample: f32;
+	var offset: vec2<f32>;
+	var sample: vec2<f32>;
 
-	if (in.world_normal.x != 0.0) {
-		x_sample = in.world_pos.z;
-		y_sample = in.world_pos.y;
-	} else if (in.world_normal.y != 0.0) {
-		x_sample = in.world_pos.x;
-		y_sample = in.world_pos.z;
+	if (in.world_normal.x > 0.0) {
+		offset.x = 0.5;
+		offset.y = 0.67;
+		sample.x = 0.25 * wrap_pos(in.world_pos.z);
+		sample.y = 0.25 * wrap_pos(in.world_pos.y);
+	} else if (in.world_normal.x < 0.0) {
+		offset.x = 0.5;
+		offset.y = 0.33;
+		sample.x = 0.25 * wrap_pos(in.world_pos.z);
+		sample.y = -0.33 * wrap_pos(in.world_pos.y);
+	} else if (in.world_normal.y > 0.0) {
+		offset.x = 0.25;
+		offset.y = 0.33;
+		sample.x = -0.25 * wrap_pos(in.world_pos.z);
+		sample.y = 0.33 * wrap_pos(in.world_pos.x);
+	} else if (in.world_normal.y < 0.0) {
+		offset.x = 0.5;
+		offset.y = 0.33;
+		sample.x = 0.25 * wrap_pos(in.world_pos.z);
+		sample.y = 0.33 * wrap_pos(in.world_pos.x);
+	} else if (in.world_normal.z > 0.0) {
+		offset.x = 0.75;
+		offset.y = 0.33;
+		sample.x = 0.25 * wrap_pos(in.world_pos.y);
+		sample.y = 0.33 * wrap_pos(in.world_pos.x);
 	} else {
-		x_sample = in.world_pos.x;
-		y_sample = in.world_pos.y;
+		offset.x = 0.5;
+		offset.y = 0.33;
+		sample.x = -0.25 * wrap_pos(in.world_pos.y);
+		sample.y = 0.33 * wrap_pos(in.world_pos.x);
 	}
 
-	// adjust this constant whenever texture map size is changed
-	let sample_pos = vec2<f32>(wrap_pos(x_sample), wrap_pos(y_sample));
-	return textureSample(block_diffuse_textures, block_diffuse_sampler, sample_pos, in.texture_index);
+	return textureSample(block_diffuse_textures, block_diffuse_sampler, offset + sample, in.texture_index);
 }
