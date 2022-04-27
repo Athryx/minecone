@@ -10,7 +10,6 @@ use super::RenderContext;
 pub struct Texture {
 	pub texture: wgpu::Texture,
 	pub view: wgpu::TextureView,
-	pub sampler: wgpu::Sampler,
 }
 
 impl Texture {
@@ -82,16 +81,9 @@ impl Texture {
 			texture_size,
 		);
 
-		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-		let sampler = context.device.create_sampler(
-			&wgpu::SamplerDescriptor {
-				address_mode_u: wgpu::AddressMode::ClampToEdge,
-				address_mode_v: wgpu::AddressMode::ClampToEdge,
-				address_mode_w: wgpu::AddressMode::ClampToEdge,
-				// TODO: make adjustable
-				mag_filter: wgpu::FilterMode::Nearest,
-				min_filter: wgpu::FilterMode::Nearest,
-				mipmap_filter: wgpu::FilterMode::Nearest,
+		let view = texture.create_view(
+			&wgpu::TextureViewDescriptor {
+				dimension: Some(wgpu::TextureViewDimension::D2Array),
 				..Default::default()
 			}
 		);
@@ -99,14 +91,22 @@ impl Texture {
 		Ok(Self {
 			texture,
 			view,
-			sampler,
 		})
 	}
+}
 
+#[derive(Debug)]
+pub struct DepthTexture {
+	pub texture: wgpu::Texture,
+	pub view: wgpu::TextureView,
+	pub sampler: wgpu::Sampler,
+}
+
+impl DepthTexture {
 	pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 	// this one is only used in the render code so a RenderContext is not needed
-	pub fn create_depth_texture(
+	pub fn new(
 		device: &wgpu::Device,
 		config: &wgpu::SurfaceConfiguration,
 		label: &str

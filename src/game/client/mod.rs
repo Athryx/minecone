@@ -11,6 +11,7 @@ use crate::prelude::*;
 use crate::render::Renderer;
 use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
+use super::TextureIndex;
 use super::player::PlayerId;
 use super::world::World;
 use super::block::{BlockFaceMesh, Air};
@@ -20,7 +21,7 @@ mod camera_controller;
 pub struct Client {
 	world: Rc<World>,
 	world_mesh: Mesh,
-	texture_map: Material,
+	block_textures: Material,
 	player_id: PlayerId,
 	camera_controller: CameraController,
 	renderer: Renderer,
@@ -32,7 +33,7 @@ impl Client {
 	pub fn new(window: &Window, world: Rc<World>) -> Self {
 		let renderer = pollster::block_on(Renderer::new(window));
 
-		let texture_map = Material::load_from_file("texture-map.png", "texture map", renderer.context())
+		let block_textures = Material::load_array_from_files(TextureIndex::resource_paths(), String::from("texture map"), renderer.context())
 			.expect("could not load texture map");
 
 		let player_id = world.connect();
@@ -42,7 +43,7 @@ impl Client {
 
 		let mut current_index = 0;
 		for block_face in world.world_mesh() {
-			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
+			vertexes.extend(block_face.0);
 			indexes.extend(BlockFaceMesh::indicies().iter().map(|elem| elem + current_index));
 			current_index += 4;
 		}
@@ -58,7 +59,7 @@ impl Client {
 		Self {
 			world,
 			world_mesh: mesh,
-			texture_map,
+			block_textures,
 			player_id,
 			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 			renderer,
@@ -72,7 +73,7 @@ impl Client {
 
 		let mut current_index = 0;
 		for block_face in self.world.world_mesh() {
-			vertexes.extend(block_face.0.iter().map(|elem| Into::<ModelVertex>::into(*elem)));
+			vertexes.extend(block_face.0);
 			indexes.extend(BlockFaceMesh::indicies().iter().map(|elem| elem + current_index));
 			current_index += 4;
 		}
@@ -105,7 +106,7 @@ impl Client {
 		if let Some(new_window_size) = new_window_size {
 			self.renderer.resize(new_window_size);
 		}
-		self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
+		self.renderer.render(&[(&self.world_mesh, &self.block_textures)]);
 	}
 
 	pub fn physics_update(&mut self, delta: Duration) {
@@ -136,6 +137,6 @@ impl Client {
 			self.generate_mesh();
 		}
 
-		self.renderer.render(&[(&self.world_mesh, &self.texture_map)]);
+		self.renderer.render(&[(&self.world_mesh, &self.block_textures)]);
 	}
 }

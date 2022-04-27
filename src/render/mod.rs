@@ -1,11 +1,13 @@
+use std::num::NonZeroU32;
+
 use nalgebra::{Point3, Vector3, Scale3, UnitQuaternion, Unit};
 use winit::window::Window;
-
 use wgpu::util::DeviceExt;
 
-use texture::Texture;
+use texture::{Texture, DepthTexture};
 use camera::Camera;
 use model::*;
+use crate::game::{BlockVertex, TextureIndex};
 
 pub mod camera;
 pub mod model;
@@ -20,7 +22,7 @@ pub struct Renderer {
 	config: wgpu::SurfaceConfiguration,
 	render_pipeline: wgpu::RenderPipeline,
 	texture_bind_layout: wgpu::BindGroupLayout,
-	depth_texture: Texture,
+	depth_texture: DepthTexture,
 	camera: Camera,
 	camera_modified: bool,
 	camera_buffer: wgpu::Buffer,
@@ -43,7 +45,7 @@ impl Renderer {
 	pub async fn new(window: &Window) -> Self {
 		let size = window.inner_size();
 
-		let instance = wgpu::Instance::new(wgpu::Backends::all());
+		let instance = wgpu::Instance::new(wgpu::Backends::VULKAN);
 		let surface = unsafe { instance.create_surface(window) };
 
 		let adapter = instance.request_adapter(
@@ -53,10 +55,10 @@ impl Renderer {
 				force_fallback_adapter: false,
 			},
 		).await.unwrap();
-		
+
 		let (device, queue) = adapter.request_device(
 			&wgpu::DeviceDescriptor {
-				features: wgpu::Features::empty(),
+				features: wgpu::Features::TEXTURE_BINDING_ARRAY,
 				limits: wgpu::Limits {
 					max_texture_array_layers: 256,
 					..Default::default()
@@ -84,10 +86,10 @@ impl Renderer {
 						visibility: wgpu::ShaderStages::FRAGMENT,
 						ty: wgpu::BindingType::Texture {
 							multisampled: false,
-							view_dimension: wgpu::TextureViewDimension::D2,
+							view_dimension: wgpu::TextureViewDimension::D2Array,
 							sample_type: wgpu::TextureSampleType::Float { filterable: true },
 						},
-						count: None,
+						count: NonZeroU32::new(TextureIndex::COUNT),
 					},
 					wgpu::BindGroupLayoutEntry {
 						binding: 1,
@@ -99,7 +101,7 @@ impl Renderer {
 			}
 		);
 
-		let depth_texture = Texture::create_depth_texture(&device, &config, "depth texture");
+		let depth_texture = DepthTexture::new(&device, &config, "depth texture");
 
 		// render pipeline
 		let camera = Camera::new(Point3::new(0.0, 0.0, -1.0), Point3::new(0.0, 0.0, 0.0), config.width as f32 / config.height as f32);
@@ -161,8 +163,7 @@ impl Renderer {
 				module: &shader,
 				entry_point: "vs_main",
 				buffers: &[
-					ModelVertex::desc(),
-					//InstanceRaw::desc(),
+					BlockVertex::desc(),
 				],
 			},
 			fragment: Some(wgpu::FragmentState {
@@ -187,7 +188,7 @@ impl Renderer {
 				conservative: false,
 			},
 			depth_stencil: Some(wgpu::DepthStencilState {
-				format: Texture::DEPTH_FORMAT,
+				format: DepthTexture::DEPTH_FORMAT,
 				depth_write_enabled: true,
 				depth_compare: wgpu::CompareFunction::Less,
 				stencil: wgpu::StencilState::default(),
@@ -231,7 +232,7 @@ impl Renderer {
 			self.config.width = new_size.width;
 			self.config.height = new_size.height;
 			self.surface.configure(&self.device, &self.config);
-			self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth texture");
+			self.depth_texture = DepthTexture::new(&self.device, &self.config, "depth texture");
 		}
 	}
 

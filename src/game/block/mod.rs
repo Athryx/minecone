@@ -1,15 +1,10 @@
-use std::cell::{Ref, RefMut};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::iter::FusedIterator;
+use std::{iter::FusedIterator, path::Path, mem};
 
-use nalgebra::{Vector2, Vector3, Translation3, Point3};
+use nalgebra::{Vector2, Vector3};
 
-pub use crate::render::model::Model;
+pub use crate::render::model::{Vertex, Model};
 use crate::{util::{vec2_getx, vec2_gety, vec3_getx, vec3_gety, vec3_getz}, render::model::ModelVertex};
 use crate::prelude::*;
-use super::chunk::LoadedChunk;
-use super::world::World;
 
 mod air;
 pub use air::*;
@@ -25,12 +20,12 @@ const TEX_MAP_BLOCK_WIDTH: f64 = 32.0;
 const TEX_MAP_BLOCK_HEIGHT: f64 = 32.0;
 
 // the amount of overlap between block verticies to stop rendering artifacts from occuring
-const BLOCK_MODEL_OVERLAP: f64 = 0.00001;
+//const BLOCK_MODEL_OVERLAP: f64 = 0.00001;
 
 // offset from the edge of the texture that the texture view will be
 // this causes the texture segment to be smaller than the actual texture by a little bit
 // to avoid rendering artifacts
-const TEX_OFFSET: f64 = 0.0001;
+//const TEX_OFFSET: f64 = 0.0001;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockFace {
@@ -112,48 +107,61 @@ impl Iterator for BlockFaceIter {
 
 impl FusedIterator for BlockFaceIter {}
 
-// scales the input tex_pos where 1 unit is 1 block to be in the correct coordinates for the gpu
-const fn scale_tex_pos(tex_pos: TexPos) -> TexPos {
-	TexPos::new(vec2_getx(tex_pos) / TEX_MAP_BLOCK_WIDTH, vec2_gety(tex_pos) / TEX_MAP_BLOCK_HEIGHT)
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureIndex {
+	TestBlock = 0,
+	Stone = 1,
 }
 
-// constant conversion from block pos to Vector3<f32>
-const fn block_pos_to_position(block: BlockPos) -> Position {
-	Vector3::new(vec3_getx(block) as f64, vec3_gety(block) as f64, vec3_getz(block) as f64)
-}
+static TEXTURE_PATHS: [&'static str; 2] = [
+	"textures/stone.png",
+	"textures/test-block.png",
+];
 
-// constant way to add Vector3<f32>
-const fn vec_add(a: Position, b: Position) -> Position {
-	Position::new(
-		vec3_getx(a) + vec3_getx(b),
-		vec3_gety(a) + vec3_gety(b),
-		vec3_getz(a) + vec3_getz(b),
-	)
-}
+impl TextureIndex {
+	pub const COUNT: u32 = 2;
 
-#[derive(Debug, Clone, Copy)]
-pub struct BlockVertex {
-	position: Position,
-	tex_coord: TexPos,
-	normal: Vector3<f32>,
-}
-
-impl BlockVertex {
-	pub const fn new(position: Position, tex_coord: TexPos, normal: Vector3<f32>) -> Self {
-		Self {
-			position,
-			tex_coord,
-			normal,
-		}
+	pub fn resource_paths() -> &'static [&'static str] {
+		&TEXTURE_PATHS
 	}
 }
 
-impl From<BlockVertex> for ModelVertex {
-	fn from(vertex: BlockVertex) -> ModelVertex {
-		ModelVertex {
-			position: [vertex.position.x as f32, vertex.position.y as f32, vertex.position.z as f32],
-			tex_coords: [vertex.tex_coord.x as f32, vertex.tex_coord.y as f32],
-			normal: [vertex.normal.x, vertex.normal.y, vertex.normal.z],
+impl From<TextureIndex> for i32 {
+	fn from(texture_type: TextureIndex) -> i32 {
+		texture_type as i32
+	}
+}
+
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BlockVertex {
+	position: [f32; 3],
+	normal: [f32; 3],
+	// the wgpu sample function takes in a signed integer so we use it here
+	texture_index: i32,
+}
+
+impl BlockVertex {
+	pub fn new(position: Position, normal: Vector3<f32>, texture_index: TextureIndex) -> Self {
+		Self {
+			position: [position.x as f32, position.y as f32, position.z as f32],
+			normal: [normal.x, normal.y, normal.z],
+			texture_index: texture_index.into(),
+		}
+	}
+
+	const ATTRIBS: [wgpu::VertexAttribute; 3] =
+		wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Sint32];
+}
+
+impl Vertex for BlockVertex {
+	fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+		wgpu::VertexBufferLayout {
+			array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+			step_mode: wgpu::VertexStepMode::Vertex,
+			attributes: &Self::ATTRIBS,
 		}
 	}
 }
@@ -164,39 +172,35 @@ impl From<BlockVertex> for ModelVertex {
 pub struct BlockFaceMesh(pub [BlockVertex; 4]);
 
 impl BlockFaceMesh {
-	const fn new(face: BlockFace, segment: TextureSegment) -> Self {
-		Self::from_corners(face, segment, BlockPos::new(0, 0, 0), BlockPos::new(0, 0, 0))
-	}
-
 	// TODO: add small overlap on edges to stop rendering artifacts
-	pub const fn from_corners(face: BlockFace, segment: TextureSegment, tl_corner_block: BlockPos, br_corner_block: BlockPos) -> Self {
-		let tl_corner_pos = block_pos_to_position(tl_corner_block);
-		let br_corner_pos = block_pos_to_position(br_corner_block);
+	pub fn from_corners(face: BlockFace, texture_index: TextureIndex, tl_corner_block: BlockPos, br_corner_block: BlockPos) -> Self {
+		let tl_corner_pos = tl_corner_block.as_position();
+		let br_corner_pos = br_corner_block.as_position();
 
 		let (tl_corner, br_corner) = match face {
 			BlockFace::XPos => (
-				vec_add(tl_corner_pos, Vector3::new(1.0, 1.0, 0.0)),
-				vec_add(br_corner_pos, Vector3::new(1.0, 0.0, 1.0)),
+				tl_corner_pos + Vector3::new(1.0, 1.0, 0.0),
+				br_corner_pos + Vector3::new(1.0, 0.0, 1.0),
 			),
 			BlockFace::XNeg => (
-				vec_add(tl_corner_pos, Vector3::new(0.0, 1.0, 1.0)),
-				vec_add(br_corner_pos, Vector3::new(0.0, 0.0, 0.0)),
+				tl_corner_pos + Vector3::new(0.0, 1.0, 1.0),
+				br_corner_pos + Vector3::new(0.0, 0.0, 0.0),
 			),
 			BlockFace::YPos => (
-				vec_add(tl_corner_pos, Vector3::new(0.0, 1.0, 1.0)),
-				vec_add(br_corner_pos, Vector3::new(1.0, 1.0, 0.0)),
+				tl_corner_pos + Vector3::new(0.0, 1.0, 1.0),
+				br_corner_pos + Vector3::new(1.0, 1.0, 0.0),
 			),
 			BlockFace::YNeg => (
-				vec_add(tl_corner_pos, Vector3::new(0.0, 0.0, 0.0)),
-				vec_add(br_corner_pos, Vector3::new(1.0, 0.0, 1.0)),
+				tl_corner_pos + Vector3::new(0.0, 0.0, 0.0),
+				br_corner_pos + Vector3::new(1.0, 0.0, 1.0),
 			),
 			BlockFace::ZPos => (
-				vec_add(tl_corner_pos, Vector3::new(1.0, 1.0, 1.0)),
-				vec_add(br_corner_pos, Vector3::new(0.0, 0.0, 1.0)),
+				tl_corner_pos + Vector3::new(1.0, 1.0, 1.0),
+				br_corner_pos + Vector3::new(0.0, 0.0, 1.0),
 			),
 			BlockFace::ZNeg => (
-				vec_add(tl_corner_pos, Vector3::new(0.0, 1.0, 0.0)),
-				vec_add(br_corner_pos, Vector3::new(1.0, 0.0, 0.0)),
+				tl_corner_pos + Vector3::new(0.0, 1.0, 0.0),
+				br_corner_pos + Vector3::new(1.0, 0.0, 0.0),
 			),
 		};
 
@@ -225,15 +229,15 @@ impl BlockFaceMesh {
 		};
 
 		Self([
-			 BlockVertex::new(tl_corner, segment.tl(), normal),
-			 BlockVertex::new(bl_corner, segment.bl(), normal),
-			 BlockVertex::new(br_corner, segment.br(), normal),
-			 BlockVertex::new(tr_corner, segment.tr(), normal),
+			 BlockVertex::new(tl_corner, normal, texture_index),
+			 BlockVertex::new(bl_corner, normal, texture_index),
+			 BlockVertex::new(br_corner, normal, texture_index),
+			 BlockVertex::new(tr_corner, normal, texture_index),
 		])
 	}
 
 	// TODO: this is probably more complicated than it needs to be
-	pub fn from_cube_corners(face: BlockFace, segment: TextureSegment, neg_corner_block: BlockPos, pos_corner_block: BlockPos) -> Self {
+	pub fn from_cube_corners(face: BlockFace, texture_index: TextureIndex, neg_corner_block: BlockPos, pos_corner_block: BlockPos) -> Self {
 		let (tl_corner, br_corner) = match face {
 			BlockFace::XPos => (
 				BlockPos::new(pos_corner_block.x, pos_corner_block.y, neg_corner_block.z),
@@ -261,154 +265,12 @@ impl BlockFaceMesh {
 			),
 		};
 
-		Self::from_corners(face, segment, tl_corner, br_corner)
+		Self::from_corners(face, texture_index, tl_corner, br_corner)
 	}
 
 	// returns the indicies of the block model to be used for the index buffer
 	pub const fn indicies() -> &'static [u32] {
 		&[0, 2, 1, 2, 0, 3]
-	}
-}
-
-// a rectangular cutout of the texture map
-#[derive(Debug, Clone, Copy)]
-pub struct TextureSegment {
-	top_left: TexPos,
-	bottom_right: TexPos,
-}
-
-impl TextureSegment {
-	const fn new(top_left: TexPos, bottom_right: TexPos) -> Self {
-		let tlx = vec2_getx(top_left) + TEX_OFFSET;
-		let tly = vec2_gety(top_left) + TEX_OFFSET;
-
-		let brx = vec2_getx(bottom_right) - TEX_OFFSET;
-		let bry = vec2_gety(bottom_right) - TEX_OFFSET;
-
-		Self {
-			top_left: scale_tex_pos(TexPos::new(tlx, tly)),
-			bottom_right: scale_tex_pos(TexPos::new(brx, bry)),
-		}
-	}
-
-	const fn from_tl(top_left: TexPos) -> Self {
-		let bottom_right = TexPos::new(vec2_getx(top_left) + 1.0, vec2_gety(top_left) + 1.0);
-		Self::new(top_left, bottom_right)
-	}
-
-	const fn tl(&self) -> TexPos {
-		self.top_left
-	}
-
-	const fn tr(&self) -> TexPos {
-		TexPos::new(vec2_getx(self.top_left), vec2_gety(self.bottom_right))
-	}
-
-	const fn bl(&self) -> TexPos {
-		TexPos::new(vec2_getx(self.bottom_right), vec2_gety(self.top_left))
-	}
-
-	const fn br(&self) -> TexPos {
-		self.bottom_right
-	}
-
-	// counter clockwise rotation
-	const fn rotated_90(&self) -> TextureSegment {
-		TextureSegment {
-			top_left: self.tr(),
-			bottom_right: self.bl(),
-		}
-	}
-
-	// counter clockwise rotation
-	const fn rotated_180(&self) -> TextureSegment {
-		TextureSegment {
-			top_left: self.br(),
-			bottom_right: self.tl(),
-		}
-	}
-
-	// counter clockwise rotation
-	const fn rotated_270(&self) -> TextureSegment {
-		TextureSegment {
-			top_left: self.bl(),
-			bottom_right: self.tr(),
-		}
-	}
-}
-
-// which side of the block face the top of the texture is facing when looking straight at the face
-// when looking at the x or z faces, the positive y axis is up
-// when looking at the y faces, the positive x axis is the right side of the face
-#[derive(Debug, Clone, Copy)]
-enum TextureFace {
-	Up(TextureSegment),
-	Down(TextureSegment),
-	Left(TextureSegment),
-	Right(TextureSegment),
-}
-
-impl TextureFace {
-	const fn as_rotated_segment(&self) -> TextureSegment {
-		match self {
-			Self::Up(segment) => *segment,
-			Self::Down(segment) => segment.rotated_180(),
-			Self::Left(segment) => segment.rotated_90(),
-			Self::Right(segment) => segment.rotated_270(),
-		}
-	}
-}
-
-// for now, this only supports perfect cube blocks, in future it will support more types
-#[derive(Debug, Clone, Copy)]
-pub struct BlockModel {
-	pub xpos_texture: TextureSegment,
-	pub xneg_texture: TextureSegment,
-	pub ypos_texture: TextureSegment,
-	pub yneg_texture: TextureSegment,
-	pub zpos_texture: TextureSegment,
-	pub zneg_texture: TextureSegment,
-}
-
-impl BlockModel {
-	const fn from_texture(texture: TextureFace) -> Self {
-		Self {
-			xpos_texture: texture.as_rotated_segment(),
-			xneg_texture: texture.as_rotated_segment(),
-			ypos_texture: texture.as_rotated_segment(),
-			yneg_texture: texture.as_rotated_segment(),
-			zpos_texture: texture.as_rotated_segment(),
-			zneg_texture: texture.as_rotated_segment(),
-		}
-	}
-
-	const fn from_texture_faces(
-		xpos_face: TextureFace,
-		xneg_face: TextureFace,
-		ypos_face: TextureFace,
-		yneg_face: TextureFace,
-		zpos_face: TextureFace,
-		zneg_face: TextureFace,
-	) -> Self {
-		Self {
-			xpos_texture: xpos_face.as_rotated_segment(),
-			xneg_texture: xneg_face.as_rotated_segment(),
-			ypos_texture: ypos_face.as_rotated_segment(),
-			yneg_texture: yneg_face.as_rotated_segment(),
-			zpos_texture: zpos_face.as_rotated_segment(),
-			zneg_texture: zneg_face.as_rotated_segment(),
-		}
-	}
-
-	pub fn get_face(&self, face: BlockFace) -> TextureSegment {
-		match face {
-			BlockFace::XPos => self.xpos_texture,
-			BlockFace::XNeg => self.xneg_texture,
-			BlockFace::YPos => self.ypos_texture,
-			BlockFace::YNeg => self.yneg_texture,
-			BlockFace::ZPos => self.zpos_texture,
-			BlockFace::ZNeg => self.zneg_texture,
-		}
 	}
 }
 
@@ -423,7 +285,7 @@ pub trait Block {
 	fn name(&self) -> &str;
 	fn block_type(&self) -> BlockType;
 	// panics if the block is air (or some other block without a blockmodel)
-	fn model(&self) -> &'static BlockModel;
+	fn texture_index(&self) -> TextureIndex;
 	fn is_translucent(&self) -> bool;
 
 	fn is_air(&self) -> bool {

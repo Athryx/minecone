@@ -290,7 +290,7 @@ impl Chunk {
 	
 				let block_face_mesh = BlockFaceMesh::from_cube_corners(
 					face,
-					block.model().get_face(face),
+					block.texture_index(),
 					block_pos + self.block_position,
 					visit_map.get_block_pos_offset(block_pos, width - 1, height - 1) + self.block_position,
 				);

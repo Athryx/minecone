@@ -7,7 +7,7 @@ use nalgebra::{Vector3, Scale3, Matrix4, UnitQuaternion};
 use super::{RenderContext, texture::Texture};
 use crate::assets::loader;
 
-pub trait Vertex {
+pub trait Vertex: bytemuck::Pod + bytemuck::Zeroable {
 	fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
 }
 
@@ -44,9 +44,9 @@ pub struct Mesh {
 }
 
 impl Mesh {
-	pub fn new(
+	pub fn new<T: Vertex>(
 		name: &str,
-		vertices: &[ModelVertex],
+		vertices: &[T],
 		indices: &[u32],
 		material_index: usize,
 		context: RenderContext,
@@ -80,7 +80,8 @@ impl Mesh {
 #[derive(Debug)]
 pub struct Material {
 	name: String,
-	diffuse_texture: Texture,
+	diffuse_textures: Vec<Texture>,
+	diffuse_sampler: wgpu::Sampler,
 	bind_group: wgpu::BindGroup,
 }
 
@@ -88,10 +89,23 @@ impl Material {
 	// for now, file name is file name of diffuse texture
 	pub fn load_from_file<T: AsRef<Path>>(
 		file_name: T,
-		name: &str,
+		name: String,
 		context: RenderContext,
 	) -> Result<Self> {
 		let diffuse_texture = Texture::from_file(file_name, &format!("{} diffuse texture", name), context)?;
+
+		let diffuse_sampler = context.device.create_sampler(
+			&wgpu::SamplerDescriptor {
+				address_mode_u: wgpu::AddressMode::ClampToEdge,
+				address_mode_v: wgpu::AddressMode::ClampToEdge,
+				address_mode_w: wgpu::AddressMode::ClampToEdge,
+				// TODO: make adjustable
+				mag_filter: wgpu::FilterMode::Nearest,
+				min_filter: wgpu::FilterMode::Nearest,
+				mipmap_filter: wgpu::FilterMode::Nearest,
+				..Default::default()
+			}
+		);
 
 		let bind_group = context.device.create_bind_group(
 			&wgpu::BindGroupDescriptor {
@@ -104,15 +118,69 @@ impl Material {
 					},
 					wgpu::BindGroupEntry {
 						binding: 1,
-						resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+						resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
 					},
 				],
 			}
 		);
 
 		Ok(Self {
-			name: name.to_owned(),
-			diffuse_texture,
+			name,
+			diffuse_textures: vec![diffuse_texture],
+			diffuse_sampler,
+			bind_group,
+		})
+	}
+
+	pub fn load_array_from_files<T: AsRef<Path>>(
+		files: &[T],
+		name: String,
+		context: RenderContext,
+	) -> Result<Self> {
+		let mut diffuse_textures = Vec::with_capacity(files.len());
+		for file in files.iter() {
+			diffuse_textures.push(Texture::from_file(file, &format!("{} diffuse texture", name), context)?);
+		}
+
+		let mut texture_views = Vec::with_capacity(files.len());
+		for texture in diffuse_textures.iter() {
+			texture_views.push(&texture.view);
+		}
+
+		let diffuse_sampler = context.device.create_sampler(
+			&wgpu::SamplerDescriptor {
+				address_mode_u: wgpu::AddressMode::ClampToEdge,
+				address_mode_v: wgpu::AddressMode::ClampToEdge,
+				address_mode_w: wgpu::AddressMode::ClampToEdge,
+				// TODO: make adjustable
+				mag_filter: wgpu::FilterMode::Nearest,
+				min_filter: wgpu::FilterMode::Nearest,
+				mipmap_filter: wgpu::FilterMode::Nearest,
+				..Default::default()
+			}
+		);
+
+		let bind_group = context.device.create_bind_group(
+			&wgpu::BindGroupDescriptor {
+				label: Some(&format!("{} bind group", name)),
+				layout: context.texture_bind_layout,
+				entries: &[
+					wgpu::BindGroupEntry {
+						binding: 0,
+						resource: wgpu::BindingResource::TextureViewArray(&texture_views),
+					},
+					wgpu::BindGroupEntry {
+						binding: 1,
+						resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+					},
+				],
+			}
+		);
+
+		Ok(Self {
+			name,
+			diffuse_textures,
+			diffuse_sampler,
 			bind_group,
 		})
 	}
@@ -135,7 +203,7 @@ impl Model {
 
 		let mut materials = Vec::with_capacity(obj_materials.len());
 		for mat in obj_materials.into_iter() {
-			materials.push(Material::load_from_file(&mat.diffuse_texture, &mat.diffuse_texture, context)?);
+			materials.push(Material::load_from_file(&mat.diffuse_texture, mat.diffuse_texture.clone(), context)?);
 		}
 
 		let mut meshes = Vec::with_capacity(obj_meshes.len());

@@ -144,6 +144,7 @@ pub trait BlockPosExt {
 	fn magnitude(&self) -> f64;
 	// gets the component of the vector corresponding with the specified block face
 	fn get_face_component(&self, face: BlockFace) -> i64;
+	fn as_position(&self) -> Position;
 }
 
 impl BlockPosExt for BlockPos {
@@ -217,6 +218,10 @@ impl BlockPosExt for BlockPos {
 			BlockFace::YPos | BlockFace::YNeg => self.y,
 			BlockFace::ZPos | BlockFace::ZNeg => self.z,
 		}
+	}
+
+	fn as_position(&self) -> Position {
+		Position::new(self.x as f64, self.y as f64, self.z as f64)
 	}
 }
 
