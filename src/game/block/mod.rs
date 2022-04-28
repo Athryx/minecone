@@ -1,9 +1,9 @@
-use std::{iter::FusedIterator, path::Path, mem};
+use std::{iter::FusedIterator, mem};
 
-use nalgebra::{Vector2, Vector3};
+use nalgebra::Vector3;
 
 pub use crate::render::model::{Vertex, Model};
-use crate::{util::{vec2_getx, vec2_gety, vec3_getx, vec3_gety, vec3_getz}, render::model::ModelVertex};
+use crate::util::{vec3_getx, vec3_gety, vec3_getz};
 use crate::prelude::*;
 
 mod air;
@@ -13,19 +13,8 @@ pub use stone::*;
 mod test_block;
 pub use test_block::*;
 
-pub type TexPos = Vector2<f64>;
-
-// the width and height of the texture map in number of blocks
-const TEX_MAP_BLOCK_WIDTH: f64 = 32.0;
-const TEX_MAP_BLOCK_HEIGHT: f64 = 32.0;
-
 // the amount of overlap between block verticies to stop rendering artifacts from occuring
 //const BLOCK_MODEL_OVERLAP: f64 = 0.00001;
-
-// offset from the edge of the texture that the texture view will be
-// this causes the texture segment to be smaller than the actual texture by a little bit
-// to avoid rendering artifacts
-//const TEX_OFFSET: f64 = 0.0001;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockFace {
@@ -114,16 +103,18 @@ pub enum TextureIndex {
 	Stone = 1,
 }
 
-static TEXTURE_PATHS: [&'static str; 2] = [
-	"textures/stone.png",
-	"textures/test-block.png",
-];
-
 impl TextureIndex {
-	pub const COUNT: u32 = 2;
+	const TEXTURE_PATHS: [&'static str; 2] = [
+		"textures/stone.png",
+		"textures/test-block.png",
+	];
 
-	pub fn resource_paths() -> &'static [&'static str] {
-		&TEXTURE_PATHS
+	pub const fn num_textures() -> u32 {
+		Self::TEXTURE_PATHS.len() as u32
+	}
+
+	pub const fn resource_paths() -> &'static [&'static str] {
+		&Self::TEXTURE_PATHS
 	}
 }
 
@@ -133,27 +124,62 @@ impl From<TextureIndex> for i32 {
 	}
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct OcclusionCorners {
+	pub tl: u8,
+	pub tr: u8,
+	pub bl: u8,
+	pub br: u8,
+}
+
+impl OcclusionCorners {
+	pub fn pos_corner(&self) -> u8 {
+		self.tr
+	}
+
+	pub fn neg_corner(&self) -> u8 {
+		self.bl
+	}
+
+	pub fn xpos_yneg_corner(&self) -> u8 {
+		self.br
+	}
+
+	pub fn xneg_ypos_corner(&self) -> u8 {
+		self.tl
+	}
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BlockVertex {
 	position: [f32; 3],
 	normal: [f32; 3],
+	// texture color will be mutiplied by this color
+	color: [f32; 3],
 	// the wgpu sample function takes in a signed integer so we use it here
 	texture_index: i32,
 }
 
 impl BlockVertex {
-	pub fn new(position: Position, normal: Vector3<f32>, texture_index: TextureIndex) -> Self {
+	// panics on invalid occlusion level
+	pub fn new(position: Position, normal: Vector3<f32>, texture_index: TextureIndex, occlusion_level: u8) -> Self {
 		Self {
 			position: [position.x as f32, position.y as f32, position.z as f32],
 			normal: [normal.x, normal.y, normal.z],
+			color: match occlusion_level {
+				0 => [1.0, 1.0, 1.0],
+				1 => [0.8, 0.8, 0.8],
+				2 => [0.6, 0.6, 0.6],
+				3 => [0.4, 0.4, 0.4],
+				_ => panic!("invalid occlusion level passed to BlockVertex::new()"),
+			},
 			texture_index: texture_index.into(),
 		}
 	}
 
-	const ATTRIBS: [wgpu::VertexAttribute; 3] =
-		wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Sint32];
+	const ATTRIBS: [wgpu::VertexAttribute; 4] =
+		wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Sint32];
 }
 
 impl Vertex for BlockVertex {
@@ -173,7 +199,8 @@ pub struct BlockFaceMesh(pub [BlockVertex; 4]);
 
 impl BlockFaceMesh {
 	// TODO: add small overlap on edges to stop rendering artifacts
-	pub fn from_corners(face: BlockFace, texture_index: TextureIndex, tl_corner_block: BlockPos, br_corner_block: BlockPos) -> Self {
+	// occlusion levels in the array are: [tl, bl, br, tr]
+	pub fn from_corners(face: BlockFace, texture_index: TextureIndex, tl_corner_block: BlockPos, br_corner_block: BlockPos, occlusion_data: OcclusionCorners) -> Self {
 		let tl_corner_pos = tl_corner_block.as_position();
 		let br_corner_pos = br_corner_block.as_position();
 
@@ -229,43 +256,79 @@ impl BlockFaceMesh {
 		};
 
 		Self([
-			 BlockVertex::new(tl_corner, normal, texture_index),
-			 BlockVertex::new(bl_corner, normal, texture_index),
-			 BlockVertex::new(br_corner, normal, texture_index),
-			 BlockVertex::new(tr_corner, normal, texture_index),
+			 BlockVertex::new(tl_corner, normal, texture_index, occlusion_data.tl),
+			 BlockVertex::new(bl_corner, normal, texture_index, occlusion_data.bl),
+			 BlockVertex::new(br_corner, normal, texture_index, occlusion_data.br),
+			 BlockVertex::new(tr_corner, normal, texture_index, occlusion_data.tr),
 		])
 	}
 
 	// TODO: this is probably more complicated than it needs to be
-	pub fn from_cube_corners(face: BlockFace, texture_index: TextureIndex, neg_corner_block: BlockPos, pos_corner_block: BlockPos) -> Self {
-		let (tl_corner, br_corner) = match face {
+	pub fn from_cube_corners(face: BlockFace, texture_index: TextureIndex, neg_corner_block: BlockPos, pos_corner_block: BlockPos, occlusion_data: OcclusionCorners) -> Self {
+		let (tl_corner, br_corner, occlusion_data) = match face {
 			BlockFace::XPos => (
 				BlockPos::new(pos_corner_block.x, pos_corner_block.y, neg_corner_block.z),
 				BlockPos::new(pos_corner_block.x, neg_corner_block.y, pos_corner_block.z),
+				OcclusionCorners {
+					tl: occlusion_data.xpos_yneg_corner(),
+					tr: occlusion_data.pos_corner(),
+					bl: occlusion_data.neg_corner(),
+					br: occlusion_data.xneg_ypos_corner(),
+				},
 			),
 			BlockFace::XNeg => (
 				BlockPos::new(neg_corner_block.x, pos_corner_block.y, pos_corner_block.z),
 				BlockPos::new(neg_corner_block.x, neg_corner_block.y, neg_corner_block.z),
+				OcclusionCorners {
+					tl: occlusion_data.pos_corner(),
+					tr: occlusion_data.xpos_yneg_corner(),
+					bl: occlusion_data.xneg_ypos_corner(),
+					br: occlusion_data.neg_corner(),
+				},
 			),
 			BlockFace::YPos => (
 				BlockPos::new(neg_corner_block.x, pos_corner_block.y, pos_corner_block.z),
 				BlockPos::new(pos_corner_block.x, pos_corner_block.y, neg_corner_block.z),
+				OcclusionCorners {
+					tl: occlusion_data.xneg_ypos_corner(),
+					tr: occlusion_data.pos_corner(),
+					bl: occlusion_data.neg_corner(),
+					br: occlusion_data.xpos_yneg_corner(),
+				}
 			),
 			BlockFace::YNeg => (
 				BlockPos::new(neg_corner_block.x, neg_corner_block.y, neg_corner_block.z),
 				BlockPos::new(pos_corner_block.x, neg_corner_block.y, pos_corner_block.z),
+				OcclusionCorners {
+					tl: occlusion_data.neg_corner(),
+					tr: occlusion_data.xpos_yneg_corner(),
+					bl: occlusion_data.xneg_ypos_corner(),
+					br: occlusion_data.pos_corner(),
+				}
 			),
 			BlockFace::ZPos => (
 				BlockPos::new(pos_corner_block.x, pos_corner_block.y, pos_corner_block.z),
 				BlockPos::new(neg_corner_block.x, neg_corner_block.y, pos_corner_block.z),
+				OcclusionCorners {
+					tl: occlusion_data.pos_corner(),
+					tr: occlusion_data.xneg_ypos_corner(),
+					bl: occlusion_data.xpos_yneg_corner(),
+					br: occlusion_data.neg_corner(),
+				},
 			),
 			BlockFace::ZNeg => (
 				BlockPos::new(neg_corner_block.x, pos_corner_block.y, neg_corner_block.z),
 				BlockPos::new(pos_corner_block.x, neg_corner_block.y, neg_corner_block.z),
+				OcclusionCorners {
+					tl: occlusion_data.xneg_ypos_corner(),
+					tr: occlusion_data.pos_corner(),
+					bl: occlusion_data.neg_corner(),
+					br: occlusion_data.xpos_yneg_corner(),
+				},
 			),
 		};
 
-		Self::from_corners(face, texture_index, tl_corner, br_corner)
+		Self::from_corners(face, texture_index, tl_corner, br_corner, occlusion_data)
 	}
 
 	// returns the indicies of the block model to be used for the index buffer

@@ -2,9 +2,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use array_init::array_init;
-use nalgebra::Translation3;
 
-use super::block::{Block, BlockFaceMesh, BlockFace};
+use super::block::{Block, BlockFaceMesh, BlockFace, OcclusionCorners};
 // TEMP
 use super::block::{Air, Stone};
 use super::entity::Entity;
@@ -17,7 +16,8 @@ pub const CHUNK_SIZE: usize = 32;
 
 // says all blocks that have been visited for the greedy meshing algorithm in a given layer
 pub struct VisitedBlockMap {
-	data: Vec<bool>,
+	visited_blocks: Box<[[bool; CHUNK_SIZE]; CHUNK_SIZE]>,
+	vertex_occlusion: Box<[[u8; CHUNK_SIZE + 1]; CHUNK_SIZE + 1]>,
 	face: BlockFace,
 	coord3: i64,
 }
@@ -27,29 +27,22 @@ impl VisitedBlockMap {
 	// face and coord3 should be set according to the current slice we are iterating over
 	pub fn new() -> Self {
 		VisitedBlockMap {
-			data: vec![false; CHUNK_SIZE * CHUNK_SIZE],
+			visited_blocks: Box::new([[false; CHUNK_SIZE]; CHUNK_SIZE]),
+			vertex_occlusion: Box::new([[0; CHUNK_SIZE + 1]; CHUNK_SIZE + 1]),
 			face: BlockFace::XPos,
 			coord3: 0,
 		}
 	}
 
-	fn get_index(&self, position: BlockPos) -> usize {
+	fn get_index(&self, position: BlockPos) -> (usize, usize) {
 		let (x, y) = match self.face {
 			BlockFace::XPos | BlockFace::XNeg => (position.y, position.z),
 			BlockFace::YPos | BlockFace::YNeg => (position.x, position.z),
 			BlockFace::ZPos | BlockFace::ZNeg => (position.x, position.y),
 		};
-		let x: usize = x.try_into().unwrap();
-		let y: usize = y.try_into().unwrap();
-		x * CHUNK_SIZE + y
+		(x.try_into().unwrap(), y.try_into().unwrap())
 	}
 	
-	fn get_block_pos_index(&self, index: usize) -> BlockPos {
-		let x = (index / CHUNK_SIZE) as i64;
-		let y = (index % CHUNK_SIZE) as i64;
-		self.get_block_pos(x, y)
-	}
-
 	fn get_block_pos(&self, x: i64, y: i64) -> BlockPos {
 		match self.face {
 			BlockFace::XPos | BlockFace::XNeg => BlockPos::new(self.coord3, x, y),
@@ -67,18 +60,41 @@ impl VisitedBlockMap {
 	}
 
 	fn is_visited(&self, position: BlockPos) -> bool {
-		self.data[self.get_index(position)]
+		let (x, y) = self.get_index(position);
+		self.visited_blocks[x][y]
 	}
 
-	fn visit(&mut self, position: BlockPos) {
-		let index = self.get_index(position);
-		self.data[index] = true;
+	fn set_visited(&mut self, position: BlockPos, visited: bool) {
+		let (x, y) = self.get_index(position);
+		self.visited_blocks[x][y] = visited;
 	}
 
-	fn reset(&mut self, face: BlockFace, coord3: i64) {
-		for n in self.data.iter_mut() {
-			*n = false;
+	fn set_occlusion_level(&mut self, x: i64, y: i64, occlusion_level: u8) {
+		let x: usize = x.try_into().unwrap();
+		let y: usize = y.try_into().unwrap();
+		self.vertex_occlusion[x][y] = occlusion_level;
+	}
+
+	fn occlusion_level_matches(&self, block1: BlockPos, block2: BlockPos) -> bool {
+		let (x1, y1) = self.get_index(block1);
+		let (x2, y2) = self.get_index(block2);
+		self.vertex_occlusion[x1][y1] == self.vertex_occlusion[x2][y2]
+			&& self.vertex_occlusion[x1 + 1][y1] == self.vertex_occlusion[x2 + 1][y2]
+			&& self.vertex_occlusion[x1][y1 + 1] == self.vertex_occlusion[x2][y2 + 1]
+			&& self.vertex_occlusion[x1 + 1][y1 + 1] == self.vertex_occlusion[x2 + 1][y2 + 1]
+	}
+
+	fn get_occlusion_data(&self, block: BlockPos) -> OcclusionCorners {
+		let (x, y) = self.get_index(block);
+		OcclusionCorners {
+			tl: self.vertex_occlusion[x][y + 1],
+			tr: self.vertex_occlusion[x + 1][y + 1],
+			bl: self.vertex_occlusion[x][y],
+			br: self.vertex_occlusion[x + 1][y],
 		}
+	}
+
+	fn set_face_coord(&mut self, face: BlockFace, coord3: i64) {
 		self.face = face;
 		self.coord3 = coord3;
 	}
@@ -191,8 +207,55 @@ impl Chunk {
 
 	// the visit map is passed in seperately to avoid having to reallocat the memory for the visit map every time	
 	pub fn mesh_update_inner(&mut self, face: BlockFace, index: usize, visit_map: &mut VisitedBlockMap) {
-		visit_map.reset(face, index as i64);
+		visit_map.set_face_coord(face, index as i64);
 		self.chunk_mesh[Into::<usize>::into(face)][index].clear();
+
+		// discard all block faces that are not visible and all faces on an air block
+		for x in 0..CHUNK_SIZE as i64 {
+			for y in 0..CHUNK_SIZE as i64 {
+				let block_pos = visit_map.get_block_pos(x, y);
+
+				if self.get_block(block_pos).is_air() {
+					visit_map.set_visited(block_pos, true);
+				} else if let Some(is_translucent) = self.with_block(block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
+					visit_map.set_visited(block_pos, !is_translucent);
+				} else {
+					// there is no adjacent chunk, don't do this mesh
+					visit_map.set_visited(block_pos, true);
+				}
+			}
+		}
+
+		// get occlusion levels of all verticies
+		for x in 0..(CHUNK_SIZE as i64 + 1) {
+			for y in 0..(CHUNK_SIZE as i64 + 1) {
+				let is_occluded_by = |x, y| {
+					let block_pos = visit_map.get_block_pos(x, y);
+					if let Some(is_translucent) = self.with_block(block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
+						if is_translucent {
+							0
+						} else {
+							1
+						}
+					} else {
+						0
+					}
+				};
+
+				let tl_occludes = is_occluded_by(x - 1, y - 1);
+				let tr_occludes = is_occluded_by(x, y - 1);
+				let bl_occludes = is_occluded_by(x - 1, y);
+				let br_occludes = is_occluded_by(x, y);
+
+				let mut occlusion_level = tl_occludes + tr_occludes + bl_occludes + br_occludes;
+				// if the vertex is in a corner formed by only 2 blocks, the occlusion level needs to be 3
+				if (tl_occludes == 1 && br_occludes == 1) || (tr_occludes == 1 && bl_occludes == 1) {
+					occlusion_level = 3;
+				}
+
+				visit_map.set_occlusion_level(x, y, occlusion_level);
+			}
+		}
 
 		for x in 0..CHUNK_SIZE as i64 {
 			for y in 0..CHUNK_SIZE as i64 {
@@ -202,15 +265,10 @@ impl Chunk {
 				}
 
 				let block = self.get_block(block_pos);
-				if block.is_air() {
-					visit_map.visit(block_pos);
-					continue;
-				}
-	
 				let block_type = block.block_type();
 	
 				// width and height of the greedy mesh region
-				let mut width = 0;
+				let mut width = 1;
 				let mut height = 0;
 	
 				loop {
@@ -220,27 +278,15 @@ impl Chunk {
 						break;
 					}
 	
-					if let Some(is_translucent) = self.with_block(current_block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
-						if !is_translucent {
-							visit_map.visit(current_block_pos);
-							break;
-						}
-					} else {
-						visit_map.visit(current_block_pos);
-						break;
-					}
-	
-					if !visit_map.is_visited(current_block_pos) && self.get_block(current_block_pos).block_type() == block_type {
-						visit_map.visit(current_block_pos);
+					if !visit_map.is_visited(current_block_pos)
+						&& self.get_block(current_block_pos).block_type() == block_type
+						&& visit_map.occlusion_level_matches(block_pos, current_block_pos) {
+						visit_map.set_visited(current_block_pos, true);
 						width += 1;
-					}else {
+					} else {
 						// don't visit a block if it is a different type, we still want to visit later
 						break;
 					}
-				}
-	
-				if width == 0 {
-					continue;
 				}
 	
 				height += 1;
@@ -257,21 +303,10 @@ impl Chunk {
 							expandable = false;
 							break;
 						}
-	
-						// we want to visit these blocks even if they fail because it means they would never generate a mesh anyways
-						if let Some(is_translucent) = self.with_block(current_block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
-							if !is_translucent {
-								visit_map.visit(current_block_pos);
-								expandable = false;
-								break;
-							}
-						} else {
-							visit_map.visit(current_block_pos);
-							expandable = false;
-							break;
-						}
-	
-						if visit_map.is_visited(current_block_pos) || self.get_block(current_block_pos).block_type() != block_type {
+
+						if visit_map.is_visited(current_block_pos)
+							|| self.get_block(current_block_pos).block_type() != block_type
+							|| !visit_map.occlusion_level_matches(block_pos, current_block_pos) {
 							expandable = false;
 							break;
 						}
@@ -282,7 +317,7 @@ impl Chunk {
 					}
 	
 					for w in 0..width {
-						visit_map.visit(visit_map.get_block_pos_offset(block_pos, w, height));
+						visit_map.set_visited(visit_map.get_block_pos_offset(block_pos, w, height), true);
 					}
 	
 					height += 1;
@@ -293,6 +328,7 @@ impl Chunk {
 					block.texture_index(),
 					block_pos + self.block_position,
 					visit_map.get_block_pos_offset(block_pos, width - 1, height - 1) + self.block_position,
+					visit_map.get_occlusion_data(block_pos),
 				);
 	
 				self.chunk_mesh[Into::<usize>::into(face)][index].push(block_face_mesh);

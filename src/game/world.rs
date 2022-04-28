@@ -119,6 +119,7 @@ impl World {
 	}
 
 	// performs mesh updates on the passed in block as well as all adjacent blocks
+	// FIXME: this doesn't update everything it needs to with ambient occlusion on chunk boundaries
 	pub fn mesh_update_adjacent(&self, block: BlockPos) {
 		let chunks = self.chunks.borrow();
 

@@ -89,7 +89,7 @@ impl Renderer {
 							view_dimension: wgpu::TextureViewDimension::D2Array,
 							sample_type: wgpu::TextureSampleType::Float { filterable: true },
 						},
-						count: NonZeroU32::new(TextureIndex::COUNT),
+						count: NonZeroU32::new(TextureIndex::num_textures()),
 					},
 					wgpu::BindGroupLayoutEntry {
 						binding: 1,

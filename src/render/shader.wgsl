@@ -10,14 +10,16 @@ var<uniform> camera: CameraUniform;
 struct VertexInput {
 	[[location(0)]] position: vec3<f32>;
 	[[location(1)]] normal: vec3<f32>;
-	[[location(2)]] texture_index: i32;
+	[[location(2)]] color: vec3<f32>;
+	[[location(3)]] texture_index: i32;
 };
 
 struct VertexOutput {
 	[[builtin(position)]] clip_position: vec4<f32>;
 	[[location(0)]] world_pos: vec3<f32>;
 	[[location(1)]] world_normal: vec3<f32>;
-	[[location(2)]] texture_index: i32;
+	[[location(2)]] color: vec3<f32>;
+	[[location(3)]] texture_index: i32;
 };
 
 [[stage(vertex)]]
@@ -26,6 +28,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 	out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
 	out.world_pos = model.position;
 	out.world_normal = model.normal;
+	out.color = model.color;
 	out.texture_index = model.texture_index;
 	return out;
 }
@@ -83,5 +86,5 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 		sample.y = 0.33 * wrap_pos(in.world_pos.x);
 	}
 
-	return textureSample(block_diffuse_textures, block_diffuse_sampler, offset + sample, in.texture_index);
+	return vec4<f32>(in.color, 1.0) * textureSample(block_diffuse_textures, block_diffuse_sampler, offset + sample, in.texture_index);
 }
