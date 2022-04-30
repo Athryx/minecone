@@ -104,7 +104,7 @@ impl Renderer {
 		let depth_texture = DepthTexture::new(&device, &config, "depth texture");
 
 		// render pipeline
-		let camera = Camera::new(Point3::new(0.0, 0.0, -1.0), Point3::new(0.0, 0.0, 0.0), config.width as f32 / config.height as f32);
+		let camera = Camera::new(Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 1.0), config.width as f32 / config.height as f32);
 		let camera_uniform = camera.get_camera_uniform();
 
 		let camera_buffer = device.create_buffer_init(

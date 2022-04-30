@@ -1,5 +1,5 @@
 use std::time::{Instant, Duration};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use winit::window::WindowId;
 use winit::{
@@ -28,7 +28,7 @@ pub struct Game {
 	window_id: WindowId,
 	frame_time: Duration,
 	last_update_time: Instant,
-	world: Rc<World>,
+	world: Arc<World>,
 	client: Client,
 }
 

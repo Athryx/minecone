@@ -1,14 +1,14 @@
 use std::{
 	fs::{File, OpenOptions},
 	path::Path,
-	rc::{Rc, Weak},
-	cell::RefCell, time::Duration,
+	sync::{Arc, Weak},
 };
 
 use rustc_hash::FxHashMap;
-use winit::event::WindowEvent;
 use nalgebra::Vector3;
 use anyhow::Result;
+use rayon::prelude::*;
+use parking_lot::RwLock;
 
 use super::{
 	chunk::{Chunk, LoadedChunk, ChunkData, VisitedBlockMap},
@@ -26,47 +26,47 @@ pub const WORLD_MAX_SIZE: Vector3<u64> = Vector3::new(512, 64, 512);
 
 pub struct World {
 	self_weak: Weak<Self>,
-	players: RefCell<FxHashMap<PlayerId, Player>>,
-	entities: RefCell<Vec<Box<dyn Entity>>>,
-	pub chunks: RefCell<FxHashMap<ChunkPos, RefCell<LoadedChunk>>>,
-	cached_chunks: RefCell<FxHashMap<ChunkPos, ChunkData>>,
+	players: RwLock<FxHashMap<PlayerId, Player>>,
+	entities: RwLock<Vec<Box<dyn Entity>>>,
+	pub chunks: RwLock<FxHashMap<ChunkPos, LoadedChunk>>,
+	cached_chunks: RwLock<FxHashMap<ChunkPos, ChunkData>>,
 	world_generator: WorldGenerator,
 	// backing file of the world
 	file: File,
 }
 
 impl World {
-	pub fn load_from_file<T: AsRef<Path>>(file_name: T) -> Result<Rc<Self>> {
+	pub fn load_from_file<T: AsRef<Path>>(file_name: T) -> Result<Arc<Self>> {
 		let file = OpenOptions::new()
 			.read(true)
 			.write(true)
 			.open(file_name)?;
 
-		Ok(Rc::new_cyclic(|weak| Self {
+		Ok(Arc::new_cyclic(|weak| Self {
 			self_weak: weak.clone(),
-			players: RefCell::new(FxHashMap::default()),
-			entities: RefCell::new(Vec::new()),
-			chunks: RefCell::new(FxHashMap::default()),
-			cached_chunks: RefCell::new(FxHashMap::default()),
-			world_generator: WorldGenerator::new(),
+			players: RwLock::new(FxHashMap::default()),
+			entities: RwLock::new(Vec::new()),
+			chunks: RwLock::new(FxHashMap::default()),
+			cached_chunks: RwLock::new(FxHashMap::default()),
+			world_generator: WorldGenerator::new(0),
 			file,
 		}))
 	}
 
 	// TEMP
-	pub fn new_test() -> Result<Rc<Self>> {
+	pub fn new_test() -> Result<Arc<Self>> {
 		let file = OpenOptions::new()
 			.read(true)
 			.write(true)
 			.open("test-world")?;
 
-		let out = Rc::new_cyclic(|weak| Self {
+		let out = Arc::new_cyclic(|weak| Self {
 			self_weak: weak.clone(),
-			players: RefCell::new(FxHashMap::default()),
-			entities: RefCell::new(Vec::new()),
-			chunks: RefCell::new(FxHashMap::default()),
-			cached_chunks: RefCell::new(FxHashMap::default()),
-			world_generator: WorldGenerator::new(),
+			players: RwLock::new(FxHashMap::default()),
+			entities: RwLock::new(Vec::new()),
+			chunks: RwLock::new(FxHashMap::default()),
+			cached_chunks: RwLock::new(FxHashMap::default()),
+			world_generator: WorldGenerator::new(0),
 			file,
 		});
 
@@ -77,7 +77,7 @@ impl World {
 	// loads all chunks between min_chunk and max_chunk not including max_chunk,
 	// or incraments the load count if they are already loaded
 	pub fn load_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
-		let mut chunks = self.chunks.borrow_mut();
+		let mut chunks = self.chunks.write();
 
 		for x in min_chunk.x..max_chunk.x {
 			for y in min_chunk.y..max_chunk.y {
@@ -89,7 +89,7 @@ impl World {
 							.generate_chunk(self.self_weak.upgrade().unwrap(), position));
 
 					// when first inserting load count starts at 0
-					chunk.borrow_mut().load_count += 1;
+					chunk.inc_load_count();
 				}
 			}
 		}
@@ -98,7 +98,7 @@ impl World {
 	// decraments the load counter of all chunks between min and max chunk, not including max
 	// and unloads them if the count reaches 0
 	pub fn unload_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
-		let mut chunks = self.chunks.borrow_mut();
+		let mut chunks = self.chunks.write();
 
 		for x in min_chunk.x..max_chunk.x {
 			for y in min_chunk.y..max_chunk.y {
@@ -106,10 +106,7 @@ impl World {
 					let position = ChunkPos::new(x, y, z);
 
 					if let Some(loaded_chunk) = chunks.get(&position) {
-						let mut loaded_chunk = loaded_chunk.borrow_mut();
-						loaded_chunk.load_count -= 1;
-						if loaded_chunk.load_count == 0 {
-							drop(loaded_chunk);
+						if loaded_chunk.dec_load_count() == 0 {
 							chunks.remove(&position);
 						}
 					}
@@ -121,13 +118,12 @@ impl World {
 	// performs mesh updates on the passed in block as well as all adjacent blocks
 	// FIXME: this doesn't update everything it needs to with ambient occlusion on chunk boundaries
 	pub fn mesh_update_adjacent(&self, block: BlockPos) {
-		let chunks = self.chunks.borrow();
+		let chunks = self.chunks.read();
 
 		let block_chunk_local = block.as_chunk_local();
 		let mut visit_map = VisitedBlockMap::new();
 
 		if let Some(chunk) = chunks.get(&block.as_chunk_pos()) {
-			let mut chunk = chunk.borrow_mut();
 			chunk.chunk.mesh_update_inner(BlockFace::XPos, block_chunk_local.x as usize, &mut visit_map);
 			chunk.chunk.mesh_update_inner(BlockFace::XNeg, block_chunk_local.x as usize, &mut visit_map);
 			chunk.chunk.mesh_update_inner(BlockFace::YPos, block_chunk_local.y as usize, &mut visit_map);
@@ -140,31 +136,62 @@ impl World {
 			// subtract to get opposite as normal offest
 			let offset_block = block - face.block_pos_offset();
 			if let Some(chunk) = chunks.get(&offset_block.as_chunk_pos()) {
-				chunk.borrow_mut().chunk.mesh_update_inner(face,
-					offset_block.as_chunk_local().get_face_component(face) as usize, &mut visit_map);
+				chunk.chunk.mesh_update_inner(
+					face,
+					offset_block.as_chunk_local().get_face_component(face) as usize,
+					&mut visit_map
+				);
 			}
 		}
 	}
 
 	pub fn chunk_mesh_update(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
-		let chunks = self.chunks.borrow();
+		let chunks = self.chunks.read();
 
-		for x in min_chunk.x..max_chunk.x {
+		(min_chunk.x..max_chunk.x).into_par_iter().for_each(|x| {
 			for y in min_chunk.y..max_chunk.y {
 				for z in min_chunk.z..max_chunk.z {
 					let chunk_pos = ChunkPos::new(x, y, z);
 
 					if let Some(chunk) = chunks.get(&chunk_pos) {
-						chunk.borrow_mut().chunk.chunk_mesh_update();
+						chunk.chunk.chunk_mesh_update();
 					}
 				}
 			}
-		}
+		})
+
+		/*let zdiff = max_chunk.z - min_chunk.z;
+		let ydiff = zdiff * (max_chunk.y - min_chunk.y);
+		let xdiff = ydiff * (max_chunk.x - min_chunk.x);
+
+		for i in (0..xdiff).into_iter() {
+			let x = i / ydiff;
+			let yz = i % ydiff;
+			let y = yz / zdiff;
+			let z = yz % zdiff;
+			let chunk_pos = min_chunk + ChunkPos::new(x, y, z);
+
+			if let Some(chunk) = chunks.get(&chunk_pos) {
+				chunk.chunk.chunk_mesh_update();
+			}
+		}*/
+
+		/*for x in min_chunk.x..max_chunk.x {
+			for y in min_chunk.y..max_chunk.y {
+				for z in min_chunk.z..max_chunk.z {
+					let chunk_pos = ChunkPos::new(x, y, z);
+
+					if let Some(chunk) = chunks.get(&chunk_pos) {
+						chunk.chunk.chunk_mesh_update();
+					}
+				}
+			}
+		}*/
 	}
 
 	// performs a mesh update on 1 side of the chunk for all specified chunks
 	pub fn chunk_mesh_update_face(&self, face: BlockFace, min_chunk: ChunkPos, max_chunk: ChunkPos) {
-		let chunks = self.chunks.borrow();
+		let chunks = self.chunks.read();
 		let mut visit_map = VisitedBlockMap::new();
 
 		for x in min_chunk.x..max_chunk.x {
@@ -178,7 +205,7 @@ impl World {
 							0
 						};
 
-						chunk.borrow_mut().chunk.mesh_update_inner(face, index, &mut visit_map);
+						chunk.chunk.mesh_update_inner(face, index, &mut visit_map);
 					}
 				}
 			}
@@ -190,8 +217,8 @@ impl World {
 		where F: FnOnce(&dyn Block) -> T {
 		let (chunk_position, block) = block.as_chunk_block_pos();
 
-		Some(f(self.chunks.borrow().get(&chunk_position)?
-			.borrow().chunk.get_block(block.as_chunk_local())))
+		Some(f(&*self.chunks.read().get(&chunk_position)?
+			.chunk.get_block(block.as_chunk_local())))
 	}
 
 	// calls the function on the given block position
@@ -201,17 +228,17 @@ impl World {
 		where F: FnOnce(&mut dyn Block) -> T {
 		let (chunk_position, block) = block.as_chunk_block_pos();
 
-		Some(f(self.chunks.borrow().get(&chunk_position)?
-			.borrow_mut().chunk.get_block_mut(block.as_chunk_local())))
+		Some(f(&mut *self.chunks.read().get(&chunk_position)?
+			.chunk.get_block_mut(block.as_chunk_local())))
 	}
 
 	// sets the block at BlockPos, returns bool on success
 	pub fn set_block(&self, block_pos: BlockPos, block: Box<dyn Block>) -> bool {
 		let (chunk_pos, block_pos) = block_pos.as_chunk_block_pos();
 
-		let chunks = self.chunks.borrow();
+		let chunks = self.chunks.read();
 		if let Some(chunk) = chunks.get(&chunk_pos) {
-			chunk.borrow_mut().chunk.set_block(block_pos, block);
+			chunk.chunk.set_block(block_pos, block);
 			true
 		} else {
 			false
@@ -294,7 +321,7 @@ impl World {
 		self.chunk_mesh_update(min_load_chunk, max_load_chunk);
 
 		let id = player.id();
-		self.players.borrow_mut().insert(id, player);
+		self.players.write().insert(id, player);
 		id
 	}
 
@@ -303,7 +330,7 @@ impl World {
 	// TEMP: returns true if mesh has changed
 	// FIXME: ugly
 	pub fn set_player_position(&self, player_id: PlayerId, position: Position) -> Option<bool> {
-		let mut players = self.players.borrow_mut();
+		let mut players = self.players.write();
 		let player = players.get_mut(&player_id)?;
 
 		let chunk_position = position.into_chunk_pos();
@@ -420,8 +447,24 @@ impl World {
 	}
 
 	pub fn world_mesh(&self) -> Vec<BlockFaceMesh> {
-		self.chunks.borrow().iter()
-			.flat_map(|(_, c)| c.borrow().chunk.get_chunk_mesh())
+		self.chunks.read().iter()
+			.flat_map(|(_, c)| c.chunk.get_chunk_mesh())
 			.collect::<Vec<_>>()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	extern crate test;
+
+	use test::Bencher;
+	use super::*;
+
+	#[bench]
+	fn mesh_generation_benchmark(b: &mut Bencher) {
+		b.iter(|| {
+			let world = World::new_test().unwrap();
+			world.connect();
+		})
 	}
 }

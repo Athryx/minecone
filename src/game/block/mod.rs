@@ -344,7 +344,7 @@ pub enum BlockType {
 	TestBlock,
 }
 
-pub trait Block {
+pub trait Block: Send + Sync {
 	fn name(&self) -> &str;
 	fn block_type(&self) -> BlockType;
 	// panics if the block is air (or some other block without a blockmodel)

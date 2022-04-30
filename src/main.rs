@@ -1,6 +1,7 @@
 #![feature(once_cell)]
 #![feature(const_fn_floating_point_arithmetic)]
 #![feature(let_chains)]
+#![feature(test)]
 
 #![warn(clippy::disallowed_types)]
 

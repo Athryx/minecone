@@ -27,7 +27,8 @@ impl Player {
 			id: PlayerId::new(),
 			position: Position::new(0.0, 0.0, 0.0),
 			//render_distance: ChunkPos::new(8, 5, 8),
-			render_distance: ChunkPos::new(2, 2, 2),
+			//render_distance: ChunkPos::new(2, 2, 2),
+			render_distance: ChunkPos::new(5, 3, 5),
 		}
 	}
 

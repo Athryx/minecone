@@ -1,16 +1,14 @@
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use array_init::array_init;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::block::{Block, BlockFaceMesh, BlockFace, OcclusionCorners};
-// TEMP
-use super::block::{Air, Stone};
 use super::entity::Entity;
 use super::world::World;
 use crate::prelude::*;
-
-use crate::array3d_init;
 
 pub const CHUNK_SIZE: usize = 32;
 
@@ -100,8 +98,45 @@ impl VisitedBlockMap {
 	}
 }
 
+type BlockArray = Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;
+
+pub struct ChunkBlockRef<'a> {
+	block_lock: RwLockReadGuard<'a, BlockArray>,
+	block: *const dyn Block,
+}
+
+impl<'a> Deref for ChunkBlockRef<'a> {
+	type Target = dyn Block + 'a;
+
+	fn deref(&self) -> &Self::Target {
+		// safety: read lock will ensure this block is still alive
+		unsafe { self.block.as_ref().unwrap() }
+	}
+}
+
+pub struct ChunkBlockRefMut<'a> {
+	block_lock: RwLockWriteGuard<'a, BlockArray>,
+	block: *mut dyn Block,
+}
+
+impl<'a> Deref for ChunkBlockRefMut<'a> {
+	type Target = dyn Block + 'a;
+
+	fn deref(&self) -> &Self::Target {
+		// safety: write lock will ensure this block is still alive
+		unsafe { self.block.as_ref().unwrap() }
+	}
+}
+
+impl DerefMut for ChunkBlockRefMut<'_> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		// safety: write lock will ensure this block is still alive
+		unsafe { self.block.as_mut().unwrap() }
+	}
+}
+
 pub struct Chunk {
-	world: Rc<World>,
+	world: Arc<World>,
 	// position of back bottom left corner of chunk in block coordinates
 	// increases in incraments of 32
 	position: Position,
@@ -110,44 +145,35 @@ pub struct Chunk {
 	// coordinates of bottom left back block in world space
 	block_position: BlockPos,
 	// store them on heap to avoid stack overflow
-	blocks: Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>,
+	blocks: RwLock<BlockArray>,
 	//chunk_mesh: HashMap<BlockPos, Vec<BlockFaceMesh>>,
-	chunk_mesh: Box<[[Vec<BlockFaceMesh>; CHUNK_SIZE]; 6]>,
+	chunk_mesh: RwLock<Box<[[Vec<BlockFaceMesh>; CHUNK_SIZE]; 6]>>,
 }
 
 impl Chunk {
-	// TEMP
-	pub fn new_test(world: Rc<World>, position: ChunkPos) -> Self {
+	pub fn new<F: FnMut(BlockPos) -> Box<dyn Block>>(world: Arc<World>, position: ChunkPos, mut block_fn: F) -> Self {
+		let block_position = position * CHUNK_SIZE as i64;
+
+		let blocks = Box::new(array_init(|x| {
+			array_init(|y| {
+				array_init(|z| {
+					let block = BlockPos::new(x as i64, y as i64, z as i64) + block_position;
+					block_fn(block)
+				})
+			})
+		}));
+
 		let x = (position.x * CHUNK_SIZE as i64) as f64;
 		let y = (position.y * CHUNK_SIZE as i64) as f64;
 		let z = (position.z * CHUNK_SIZE as i64) as f64;
-
-		let mut blocks = Box::new(array3d_init!(Stone::new()));
-		blocks[5][16][24] = Air::new();
-		blocks[0][0][0] = Air::new();
-		blocks[13][19][0] = Air::new();
-
+		
 		Self {
 			world,
 			position: Position::new(x, y, z),
 			chunk_position: position,
-			block_position: position * CHUNK_SIZE as i64,
-			blocks,
-			chunk_mesh: Box::new(array_init(|_| array_init(|_| Vec::new()))),
-		}
-	}
-
-	pub fn new_test_air(world: Rc<World>, position: ChunkPos) -> Self {
-		let x = (position.x * CHUNK_SIZE as i64) as f64;
-		let y = (position.y * CHUNK_SIZE as i64) as f64;
-		let z = (position.z * CHUNK_SIZE as i64) as f64;
-		Self {
-			world,
-			position: Position::new(x, y, z),
-			chunk_position: position,
-			block_position: position * CHUNK_SIZE as i64,
-			blocks: Box::new(array3d_init!(Air::new())),
-			chunk_mesh: Box::new(array_init(|_| array_init(|_| Vec::new()))),
+			block_position,
+			blocks: RwLock::new(blocks),
+			chunk_mesh: RwLock::new(Box::new(array_init(|_| array_init(|_| Vec::new())))),
 		}
 	}
 
@@ -157,12 +183,12 @@ impl Chunk {
 	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&dyn Block) -> T {
 		if block.is_chunk_local() {
-			Some(f(self.get_block(block)))
+			Some(f(&*self.get_block(block)))
 		} else {
 			let chunk_position = block.as_chunk_pos() + self.chunk_position;
 
-			Some(f(self.world
-				.chunks.borrow().get(&chunk_position)?.borrow()
+			Some(f(&*self.world
+				.chunks.read().get(&chunk_position)?
 				.chunk.get_block(block.as_chunk_local())))
 		}
 	}
@@ -170,45 +196,60 @@ impl Chunk {
 	// calls the function on the given block position
 	// the block may be from another chunk
 	#[inline]
-	fn with_block_mut<T, F>(&mut self, block: BlockPos, f: F) -> Option<T>
+	fn with_block_mut<T, F>(&self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&mut dyn Block) -> T {
 		if block.is_chunk_local() {
-			Some(f(self.get_block_mut(block)))
+			Some(f(&mut *self.get_block_mut(block)))
 		} else {
 			let chunk_position = block.as_chunk_pos() + self.chunk_position;
 
-			Some(f(self.world
-				.chunks.borrow().get(&chunk_position)?.borrow_mut()
+			Some(f(&mut *self.world
+				.chunks.read().get(&chunk_position)?
 				.chunk.get_block_mut(block.as_chunk_local())))
 		}
 	}
 
 	#[inline]
-	pub fn get_block(&self, block: BlockPos) -> &dyn Block {
+	pub fn get_block(&self, block: BlockPos) -> ChunkBlockRef {
 		let x: usize = block.x.try_into().unwrap();
 		let y: usize = block.y.try_into().unwrap();
 		let z: usize = block.z.try_into().unwrap();
-		&*self.blocks[x][y][z]
+
+		let block_lock = self.blocks.read();
+		let block = &*block_lock[x][y][z] as *const dyn Block;
+		ChunkBlockRef {
+			block_lock,
+			block,
+		}
 	}
 
 	#[inline]
-	pub fn get_block_mut(&mut self, block: BlockPos) -> &mut dyn Block {
+	pub fn get_block_mut(&self, block: BlockPos) -> ChunkBlockRefMut {
 		let x: usize = block.x.try_into().unwrap();
 		let y: usize = block.y.try_into().unwrap();
 		let z: usize = block.z.try_into().unwrap();
-		&mut *self.blocks[x][y][z]
+
+		let mut block_lock = self.blocks.write();
+		let block = &mut *block_lock[x][y][z] as *mut dyn Block;
+		ChunkBlockRefMut {
+			block_lock,
+			block,
+		}
 	}
 
 	#[inline]
-	pub fn set_block(&mut self, block_pos: BlockPos, block: Box<dyn Block>) {
+	pub fn set_block(&self, block_pos: BlockPos, block: Box<dyn Block>) {
 		assert!(block_pos.is_chunk_local());
-		self.blocks[block_pos.x as usize][block_pos.y as usize][block_pos.z as usize] = block;
+		self.blocks.write()[block_pos.x as usize][block_pos.y as usize][block_pos.z as usize] = block;
 	}
 
 	// the visit map is passed in seperately to avoid having to reallocat the memory for the visit map every time	
-	pub fn mesh_update_inner(&mut self, face: BlockFace, index: usize, visit_map: &mut VisitedBlockMap) {
+	pub fn mesh_update_inner(&self, face: BlockFace, index: usize, visit_map: &mut VisitedBlockMap) {
 		visit_map.set_face_coord(face, index as i64);
-		self.chunk_mesh[Into::<usize>::into(face)][index].clear();
+		let mut chunk_mesh = self.chunk_mesh.write();
+		chunk_mesh[Into::<usize>::into(face)][index].clear();
+
+		let face_offset = face.block_pos_offset();
 
 		// discard all block faces that are not visible and all faces on an air block
 		for x in 0..CHUNK_SIZE as i64 {
@@ -217,7 +258,7 @@ impl Chunk {
 
 				if self.get_block(block_pos).is_air() {
 					visit_map.set_visited(block_pos, true);
-				} else if let Some(is_translucent) = self.with_block(block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
+				} else if let Some(is_translucent) = self.with_block(block_pos + face_offset, |block| block.is_translucent()) {
 					visit_map.set_visited(block_pos, !is_translucent);
 				} else {
 					// there is no adjacent chunk, don't do this mesh
@@ -226,26 +267,25 @@ impl Chunk {
 			}
 		}
 
+		let is_occluded_by = |block_pos| {
+			if let Some(is_translucent) = self.with_block(block_pos + face_offset, |block| block.is_translucent()) {
+				if is_translucent {
+					0
+				} else {
+					1
+				}
+			} else {
+				0
+			}
+		};
+
 		// get occlusion levels of all verticies
 		for x in 0..(CHUNK_SIZE as i64 + 1) {
 			for y in 0..(CHUNK_SIZE as i64 + 1) {
-				let is_occluded_by = |x, y| {
-					let block_pos = visit_map.get_block_pos(x, y);
-					if let Some(is_translucent) = self.with_block(block_pos + face.block_pos_offset(), |block| block.is_translucent()) {
-						if is_translucent {
-							0
-						} else {
-							1
-						}
-					} else {
-						0
-					}
-				};
-
-				let tl_occludes = is_occluded_by(x - 1, y - 1);
-				let tr_occludes = is_occluded_by(x, y - 1);
-				let bl_occludes = is_occluded_by(x - 1, y);
-				let br_occludes = is_occluded_by(x, y);
+				let tl_occludes = is_occluded_by(visit_map.get_block_pos(x - 1, y - 1));
+				let tr_occludes = is_occluded_by(visit_map.get_block_pos(x, y - 1));
+				let bl_occludes = is_occluded_by(visit_map.get_block_pos(x - 1, y));
+				let br_occludes = is_occluded_by(visit_map.get_block_pos(x, y));
 
 				let mut occlusion_level = tl_occludes + tr_occludes + bl_occludes + br_occludes;
 				// if the vertex is in a corner formed by only 2 blocks, the occlusion level needs to be 3
@@ -331,13 +371,13 @@ impl Chunk {
 					visit_map.get_occlusion_data(block_pos),
 				);
 	
-				self.chunk_mesh[Into::<usize>::into(face)][index].push(block_face_mesh);
+				chunk_mesh[Into::<usize>::into(face)][index].push(block_face_mesh);
 			}
 		}
 	}
 
 	// updates the mesh for the entire chunk
-	pub fn chunk_mesh_update(&mut self) {
+	pub fn chunk_mesh_update(&self) {
 		let mut visit_map = VisitedBlockMap::new();
 
 		for face in BlockFace::iter() {
@@ -348,7 +388,7 @@ impl Chunk {
 	}
 
 	pub fn get_chunk_mesh(&self) -> Vec<BlockFaceMesh> {
-		self.chunk_mesh.iter()
+		self.chunk_mesh.read().iter()
 			.flatten()
 			.flatten()
 			.copied()
@@ -358,16 +398,28 @@ impl Chunk {
 
 pub struct LoadedChunk {
 	pub chunk: Chunk,
-	pub load_count: u64,
+	pub load_count: AtomicU64,
 }
 
 impl LoadedChunk {
-	pub fn new(chunk: Chunk) -> RefCell<LoadedChunk> {
+	pub fn new(chunk: Chunk) -> LoadedChunk {
 		//let chunk_mesh = chunk.generate_block_faces();
-		RefCell::new(LoadedChunk {
+		LoadedChunk {
 			chunk,
-			load_count: 0,
-		})
+			load_count: AtomicU64::new(0),
+		}
+	}
+
+	pub fn inc_load_count(&self) {
+		self.load_count.fetch_add(1, Ordering::AcqRel);
+	}
+
+	pub fn dec_load_count(&self) -> u64 {
+		self.load_count.fetch_sub(1, Ordering::AcqRel) - 1
+	}
+
+	pub fn get_load_count(&self) -> u64 {
+		self.load_count.load(Ordering::Acquire)
 	}
 }
 

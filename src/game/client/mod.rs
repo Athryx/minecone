@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use winit::{
@@ -19,7 +19,7 @@ use super::block::{BlockFaceMesh, Air};
 mod camera_controller;
 
 pub struct Client {
-	world: Rc<World>,
+	world: Arc<World>,
 	world_mesh: Mesh,
 	block_textures: Material,
 	player_id: PlayerId,
@@ -30,7 +30,7 @@ pub struct Client {
 }
 
 impl Client {
-	pub fn new(window: &Window, world: Rc<World>) -> Self {
+	pub fn new(window: &Window, world: Arc<World>) -> Self {
 		let renderer = pollster::block_on(Renderer::new(window));
 
 		let block_textures = Material::load_array_from_files(TextureIndex::resource_paths(), String::from("texture map"), renderer.context())
