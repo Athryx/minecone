@@ -5,17 +5,13 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[build-dependencies]
-anyhow = "1.0.56"
-fs_extra = "1.2.0"
-glob = "0.3.0"
-
 [dependencies]
 log = "0.4.16"
 pretty_env_logger = "0.4.0"
 anyhow = { version = "1.0.56", features = [ "backtrace" ] }
 winit = "0.26.1"
-wgpu = "0.12.0"
+#wgpu = "0.12.0"
+wgpu = { git = "https://github.com/gfx-rs/wgpu", commit = "ebca3298f01ea72f80aeac4ab1be889469f9c699", branch = "master" }
 nalgebra = "0.30.1"
 pollster = "0.2.5"
 bytemuck = { version = "1.9.1", features = [ "derive" ] }
@@ -26,6 +22,9 @@ parking_lot = { version = "0.12.0", features = [ "nightly", "hardware-lock-elisi
 rustc-hash = "1.1.0"
 noise = "0.7.0"
 rayon = "1.5.2"
+crossbeam = "0.8.1"
+dashmap = "5.3.1"
+num_cpus = "1.13.1"
 
 [profile.dev]
 opt-level = 1

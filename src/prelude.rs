@@ -1,13 +1,17 @@
 // TODO: change this module position
-use std::ops::Deref;
+use std::hash::BuildHasherDefault;
 
 use nalgebra::{Vector2, Vector3, Vector4};
+use dashmap::DashMap;
+use rustc_hash::FxHasher;
+
 use crate::game::CHUNK_SIZE;
 use crate::game::BlockFace;
 
 pub type ChunkPos = Vector3<i64>;
 pub type BlockPos = Vector3<i64>;
 pub type Position = Vector3<f64>;
+pub type FxDashMap<K, V> = DashMap<K, V, BuildHasherDefault<FxHasher>>;
 
 // these traites return the vector with their x, y, or z component only, and the rest zeroes
 pub trait Xonly {

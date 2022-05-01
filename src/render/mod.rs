@@ -56,9 +56,12 @@ impl Renderer {
 			},
 		).await.unwrap();
 
+		let features = wgpu::Features::TEXTURE_BINDING_ARRAY
+			| wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+
 		let (device, queue) = adapter.request_device(
 			&wgpu::DeviceDescriptor {
-				features: wgpu::Features::TEXTURE_BINDING_ARRAY,
+				features,
 				limits: wgpu::Limits {
 					max_texture_array_layers: 256,
 					..Default::default()
@@ -86,7 +89,7 @@ impl Renderer {
 						visibility: wgpu::ShaderStages::FRAGMENT,
 						ty: wgpu::BindingType::Texture {
 							multisampled: false,
-							view_dimension: wgpu::TextureViewDimension::D2Array,
+							view_dimension: wgpu::TextureViewDimension::D2,
 							sample_type: wgpu::TextureSampleType::Float { filterable: true },
 						},
 						count: NonZeroU32::new(TextureIndex::num_textures()),

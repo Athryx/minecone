@@ -19,6 +19,7 @@ mod block;
 pub use block::{BlockFace, BlockVertex, TextureIndex};
 mod chunk;
 pub use chunk::CHUNK_SIZE;
+mod parallel;
 mod world;
 mod worldgen;
 
@@ -37,6 +38,9 @@ impl Game {
 		let frame_time = Duration::from_micros(1_000_000 / framerate);
 
 		let world = World::new_test().expect("could not load the test world");
+		// leave 1 for the main thread
+		parallel::init(world.clone(), num_cpus::get() - 1);
+
 		let client = Client::new(window, world.clone());
 
 		Self {

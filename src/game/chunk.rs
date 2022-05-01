@@ -101,7 +101,7 @@ impl VisitedBlockMap {
 type BlockArray = Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;
 
 pub struct ChunkBlockRef<'a> {
-	block_lock: RwLockReadGuard<'a, BlockArray>,
+	_block_lock: RwLockReadGuard<'a, BlockArray>,
 	block: *const dyn Block,
 }
 
@@ -115,7 +115,7 @@ impl<'a> Deref for ChunkBlockRef<'a> {
 }
 
 pub struct ChunkBlockRefMut<'a> {
-	block_lock: RwLockWriteGuard<'a, BlockArray>,
+	_block_lock: RwLockWriteGuard<'a, BlockArray>,
 	block: *mut dyn Block,
 }
 
@@ -188,14 +188,15 @@ impl Chunk {
 			let chunk_position = block.as_chunk_pos() + self.chunk_position;
 
 			Some(f(&*self.world
-				.chunks.read().get(&chunk_position)?
+				.chunks.get(&chunk_position)?
 				.chunk.get_block(block.as_chunk_local())))
 		}
 	}
 
 	// calls the function on the given block position
 	// the block may be from another chunk
-	#[inline]
+	// FIXME: figure out how to make this work without potentialy deadlocking (it might not even be needed though, so maybe remove)
+	/*#[inline]
 	fn with_block_mut<T, F>(&self, block: BlockPos, f: F) -> Option<T>
 		where F: FnOnce(&mut dyn Block) -> T {
 		if block.is_chunk_local() {
@@ -207,7 +208,7 @@ impl Chunk {
 				.chunks.read().get(&chunk_position)?
 				.chunk.get_block_mut(block.as_chunk_local())))
 		}
-	}
+	}*/
 
 	#[inline]
 	pub fn get_block(&self, block: BlockPos) -> ChunkBlockRef {
@@ -218,7 +219,7 @@ impl Chunk {
 		let block_lock = self.blocks.read();
 		let block = &*block_lock[x][y][z] as *const dyn Block;
 		ChunkBlockRef {
-			block_lock,
+			_block_lock: block_lock,
 			block,
 		}
 	}
@@ -232,7 +233,7 @@ impl Chunk {
 		let mut block_lock = self.blocks.write();
 		let block = &mut *block_lock[x][y][z] as *mut dyn Block;
 		ChunkBlockRefMut {
-			block_lock,
+			_block_lock: block_lock,
 			block,
 		}
 	}
@@ -362,7 +363,7 @@ impl Chunk {
 	
 					height += 1;
 				}
-	
+
 				let block_face_mesh = BlockFaceMesh::from_cube_corners(
 					face,
 					block.texture_index(),
@@ -387,12 +388,14 @@ impl Chunk {
 		}
 	}
 
-	pub fn get_chunk_mesh(&self) -> Vec<BlockFaceMesh> {
-		self.chunk_mesh.read().iter()
+	// returns None if the mesh is currently locked, which means it is being generated,
+	// so we wouldn't have to display it anywats
+	pub fn get_chunk_mesh(&self) -> Option<Vec<BlockFaceMesh>> {
+		Some(self.chunk_mesh.try_read()?.iter()
 			.flatten()
 			.flatten()
 			.copied()
-			.collect::<Vec<_>>()
+			.collect::<Vec<_>>())
 	}
 }
 

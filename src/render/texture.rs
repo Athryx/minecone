@@ -81,12 +81,7 @@ impl Texture {
 			texture_size,
 		);
 
-		let view = texture.create_view(
-			&wgpu::TextureViewDescriptor {
-				dimension: Some(wgpu::TextureViewDimension::D2Array),
-				..Default::default()
-			}
-		);
+		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
 		Ok(Self {
 			texture,

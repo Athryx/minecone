@@ -8,6 +8,8 @@ use crate::prelude::*;
 
 mod air;
 pub use air::*;
+mod dirt;
+pub use dirt::*;
 mod stone;
 pub use stone::*;
 mod test_block;
@@ -101,12 +103,14 @@ impl FusedIterator for BlockFaceIter {}
 pub enum TextureIndex {
 	TestBlock = 0,
 	Stone = 1,
+	Dirt = 2,
 }
 
 impl TextureIndex {
-	const TEXTURE_PATHS: [&'static str; 2] = [
-		"textures/stone.png",
+	const TEXTURE_PATHS: [&'static str; 3] = [
 		"textures/test-block.png",
+		"textures/stone.png",
+		"textures/dirt.png",
 	];
 
 	pub const fn num_textures() -> u32 {
@@ -340,8 +344,9 @@ impl BlockFaceMesh {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockType {
 	Air,
-	Stone,
 	TestBlock,
+	Dirt,
+	Stone,
 }
 
 pub trait Block: Send + Sync {

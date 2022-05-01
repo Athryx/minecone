@@ -27,9 +27,16 @@ pub struct Client {
 	renderer: Renderer,
 	// destroy block on the next physics frame
 	destroy_block: bool,
+	// the number of physics updates that will happen before we update again
+	// reset evrytime world tells us to update the mesh
+	// the reason we wait a bit is because when loading new chunks world will tell us to update many times
+	// in rapid succession, and waiting a bit will improve performance
+	mesh_update_countdown: Option<u64>,
 }
 
 impl Client {
+	const MESH_UPDATE_FRAME_DELAY: u64 = 20;
+
 	pub fn new(window: &Window, world: Arc<World>) -> Self {
 		let renderer = pollster::block_on(Renderer::new(window));
 
@@ -64,6 +71,7 @@ impl Client {
 			camera_controller: CameraController::new(7.0, 20.0, 2.0),
 			renderer,
 			destroy_block: false,
+			mesh_update_countdown: None,
 		}
 	}
 
@@ -132,8 +140,18 @@ impl Client {
 			}
 		}
 
+		if self.world.poll_completed_tasks() {
+			generate_mesh = true;
+		}
+
 		if generate_mesh {
-			self.generate_mesh();
+			self.mesh_update_countdown = Some(Self::MESH_UPDATE_FRAME_DELAY);
+		} else if let Some(ref mut countdown) = self.mesh_update_countdown {
+			*countdown -= 1;
+			if *countdown == 0 {
+				self.mesh_update_countdown = None;
+				self.generate_mesh();
+			}
 		}
 
 		self.renderer.render(&[(&self.world_mesh, &self.block_textures)]);
