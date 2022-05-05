@@ -21,6 +21,44 @@ use super::{
 };
 use crate::prelude::*;
 
+#[derive(Debug)]
+pub struct ChunkMeshFaceData {
+	min_chunk: ChunkPos,
+	max_chunk: ChunkPos,
+	face: BlockFace,
+}
+
+impl ChunkMeshFaceData {
+	fn into_task(&self) -> Task {
+		Task::ChunkMeshFace {
+			min_chunk: self.min_chunk,
+			max_chunk: self.max_chunk,
+			face: self.face,
+		}
+	}
+}
+
+#[derive(Debug)]
+struct ChunkLoadJob {
+	min_chunk: ChunkPos,
+	max_chunk: ChunkPos,
+	remaining_chunks: u64,
+	// data to run the mesh facing task after the chunk is done loading in
+	// TODO: handle when there is more than 1 face to mesh
+	mesh_face_task: Option<ChunkMeshFaceData>,
+}
+
+impl ChunkLoadJob {
+	fn contains_chunk(&self, chunk: ChunkPos) -> bool {
+		chunk.x >= self.min_chunk.x
+			&& chunk.y >= self.min_chunk.y
+			&& chunk.z >= self.min_chunk.z
+			&& chunk.x < self.max_chunk.z
+			&& chunk.y < self.max_chunk.z
+			&& chunk.z < self.max_chunk.z
+	}
+}
+
 // max size of world in chunks
 // 16,384 meters in each x and y direction
 // 2,048 meters in z direction
@@ -32,7 +70,9 @@ pub struct World {
 	entities: RwLock<Vec<Box<dyn Entity>>>,
 	pub chunks: FxDashMap<ChunkPos, LoadedChunk>,
 	cached_chunks: RwLock<FxHashMap<ChunkPos, ChunkData>>,
-	world_generator: WorldGenerator,
+	chunk_load_jobs: RwLock<Vec<ChunkLoadJob>>,
+	chunk_unload_jobs: RwLock<Vec<ChunkLoadJob>>,
+	pub(super) world_generator: WorldGenerator,
 	// backing file of the world
 	file: File,
 }
@@ -50,6 +90,8 @@ impl World {
 			entities: RwLock::new(Vec::new()),
 			chunks: FxDashMap::default(),
 			cached_chunks: RwLock::new(FxHashMap::default()),
+			chunk_load_jobs: RwLock::new(Vec::new()),
+			chunk_unload_jobs: RwLock::new(Vec::new()),
 			world_generator: WorldGenerator::new(0),
 			file,
 		}))
@@ -68,6 +110,8 @@ impl World {
 			entities: RwLock::new(Vec::new()),
 			chunks: FxDashMap::default(),
 			cached_chunks: RwLock::new(FxHashMap::default()),
+			chunk_load_jobs: RwLock::new(Vec::new()),
+			chunk_unload_jobs: RwLock::new(Vec::new()),
 			world_generator: WorldGenerator::new(0),
 			file,
 		});
@@ -75,21 +119,25 @@ impl World {
 		Ok(out)
 	}
 
-	// TODO: load and unload queue mesh updates
+	// TODO: refresh meshes of adjacent chunks when loading is finished
+	// TODO: handle unloading of chunks before they finish loading
 	// loads all chunks between min_chunk and max_chunk not including max_chunk,
 	// or incraments the load count if they are already loaded
-	pub fn load_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
+	pub fn load_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos, mesh_face_task: Option<ChunkMeshFaceData>) {
+		self.chunk_load_jobs.write().push(ChunkLoadJob {
+			min_chunk,
+			max_chunk,
+			remaining_chunks: ((max_chunk.x - min_chunk.x) * (max_chunk.y - min_chunk.y) * (max_chunk.z - min_chunk.z))
+				.try_into().unwrap(),
+			mesh_face_task,
+		});
+
 		for x in min_chunk.x..max_chunk.x {
 			for y in min_chunk.y..max_chunk.y {
 				for z in min_chunk.z..max_chunk.z {
 					let position = ChunkPos::new(x, y, z);
 
-					let chunk = self.chunks.entry(position)
-						.or_insert_with(|| self.world_generator
-							.generate_chunk(self.self_weak.upgrade().unwrap(), position));
-
-					// when first inserting load count starts at 0
-					chunk.inc_load_count();
+					run_task(Task::GenerateChunk(position));
 				}
 			}
 		}
@@ -97,21 +145,20 @@ impl World {
 
 	// decraments the load counter of all chunks between min and max chunk, not including max
 	// and unloads them if the count reaches 0
-	pub fn unload_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos) {
-		for x in min_chunk.x..max_chunk.x {
-			for y in min_chunk.y..max_chunk.y {
-				for z in min_chunk.z..max_chunk.z {
-					let position = ChunkPos::new(x, y, z);
+	// TODO: refresh meshes of adjacent chunks when unloading is finished
+	// TODO: handle unloading before loading is finished
+	pub fn unload_chunks(&self, min_chunk: ChunkPos, max_chunk: ChunkPos, mesh_face_task: Option<ChunkMeshFaceData>) {
+		self.chunk_load_jobs.write().push(ChunkLoadJob {
+			min_chunk,
+			max_chunk,
+			remaining_chunks: 1,
+			mesh_face_task,
+		});
 
-					if let Some(loaded_chunk) = self.chunks.get(&position) {
-						if loaded_chunk.dec_load_count() == 0 {
-							drop(loaded_chunk);
-							self.chunks.remove(&position);
-						}
-					}
-				}
-			}
-		}
+		run_task(Task::UnloadChunks {
+			min_chunk,
+			max_chunk,
+		});
 	}
 
 	// performs mesh updates on the passed in block as well as all adjacent blocks
@@ -148,28 +195,6 @@ impl World {
 				for z in min_chunk.z..max_chunk.z {
 					let chunk_pos = ChunkPos::new(x, y, z);
 					run_task(Task::ChunkMesh(chunk_pos));
-				}
-			}
-		}
-	}
-
-	// performs a mesh update on 1 side of the chunk for all specified chunks
-	pub fn chunk_mesh_update_face(&self, face: BlockFace, min_chunk: ChunkPos, max_chunk: ChunkPos) {
-		let mut visit_map = VisitedBlockMap::new();
-
-		for x in min_chunk.x..max_chunk.x {
-			for y in min_chunk.y..max_chunk.y {
-				for z in min_chunk.z..max_chunk.z {
-					let chunk_pos = BlockPos::new(x, y, z);
-					if let Some(chunk) = self.chunks.get(&chunk_pos) {
-						let index = if face.is_positive_face() {
-							CHUNK_SIZE - 1
-						} else {
-							0
-						};
-
-						chunk.chunk.mesh_update_inner(face, index, &mut visit_map);
-					}
 				}
 			}
 		}
@@ -277,6 +302,45 @@ impl World {
 		while let Some(task) = pull_completed_task() {
 			match task {
 				Task::ChunkMesh(_) => update_mesh = true,
+				Task::ChunkMeshFace { .. } => update_mesh = true,
+				Task::GenerateChunk(chunk) => {
+					let mut load_jobs = self.chunk_load_jobs.write();
+
+					let mut drain_iter = load_jobs.drain_filter(|job| {
+						// find out if the chunk is part of this job
+						if job.contains_chunk(chunk) {
+							job.remaining_chunks -= 1;
+							// remove the job if there are no more remaining chunks to temove
+							job.remaining_chunks == 0
+						} else {
+							false
+						}
+					});
+
+					if let Some(finished_job) = drain_iter.next() {
+						self.chunk_mesh_update(finished_job.min_chunk, finished_job.max_chunk);
+						if let Some(mesh_face_task) = finished_job.mesh_face_task {
+							run_task(mesh_face_task.into_task());
+						}
+					}
+				},
+				Task::UnloadChunks { min_chunk, max_chunk } => {
+					// recreate mesh because chunks have been removed, but we don't actually have to generate their meshes
+					update_mesh = true;
+
+					let mut unload_jobs = self.chunk_unload_jobs.write();
+
+					let mut drain_iter = unload_jobs.drain_filter(|job| {
+						// find out if the chunk is part of this job
+						job.min_chunk == min_chunk && job.max_chunk == max_chunk
+					});
+
+					if let Some(finished_job) = drain_iter.next() {
+						if let Some(mesh_face_task) = finished_job.mesh_face_task {
+							run_task(mesh_face_task.into_task());
+						}
+					}
+				}
 			}
 		}
 		update_mesh
@@ -289,8 +353,7 @@ impl World {
 
 		let min_load_chunk = player.chunk_position() - player.render_distance();
 		let max_load_chunk = player.chunk_position() + player.render_distance();
-		self.load_chunks(min_load_chunk, max_load_chunk);
-		self.chunk_mesh_update(min_load_chunk, max_load_chunk);
+		self.load_chunks(min_load_chunk, max_load_chunk, None);
 
 		let id = player.id();
 		self.players.write().insert(id, player);
@@ -323,22 +386,18 @@ impl World {
 				let neg_min_chunk = neg_min_chunk + xaxis;
 				let neg_max_chunk = neg_max_chunk + xaxis;
 
-				self.unload_chunks(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update_face(BlockFace::XPos, neg_min_chunk - BlockPos::new(1, 0, 0), neg_max_chunk - BlockPos::new(1, 0, 0));
+				self.unload_chunks(neg_min_chunk, neg_max_chunk, None);
+				//self.chunk_mesh_update_face(BlockFace::XPos, neg_min_chunk - BlockPos::new(1, 0, 0), neg_max_chunk - BlockPos::new(1, 0, 0));
 
-				self.load_chunks(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+				self.load_chunks(pos_min_chunk, pos_max_chunk, None);
 			} else if chunk_position.x == player.chunk_position().x - 1 {
 				let pos_min_chunk = pos_min_chunk - xaxis;
 				let pos_max_chunk = pos_max_chunk - xaxis;
 
-				self.unload_chunks(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update_face(BlockFace::XNeg, neg_min_chunk + BlockPos::new(1, 0, 0), neg_max_chunk + BlockPos::new(1, 0, 0));
+				self.unload_chunks(pos_min_chunk, pos_max_chunk, None);
+				//self.chunk_mesh_update_face(BlockFace::XNeg, neg_min_chunk + BlockPos::new(1, 0, 0), neg_max_chunk + BlockPos::new(1, 0, 0));
 
-				self.load_chunks(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+				self.load_chunks(neg_min_chunk, neg_max_chunk, None);
 			} else {
 				todo!("moved to far for current player moving code");
 			}
@@ -357,22 +416,18 @@ impl World {
 				let neg_min_chunk = neg_min_chunk + yaxis;
 				let neg_max_chunk = neg_max_chunk + yaxis;
 
-				self.unload_chunks(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update_face(BlockFace::YPos, neg_min_chunk - BlockPos::new(0, 1, 0), neg_max_chunk - BlockPos::new(0, 1, 0));
+				self.unload_chunks(neg_min_chunk, neg_max_chunk, None);
+				//self.chunk_mesh_update_face(BlockFace::YPos, neg_min_chunk - BlockPos::new(0, 1, 0), neg_max_chunk - BlockPos::new(0, 1, 0));
 
-				self.load_chunks(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+				self.load_chunks(pos_min_chunk, pos_max_chunk, None);
 			} else if chunk_position.y == player.chunk_position().y - 1 {
 				let pos_min_chunk = pos_min_chunk - yaxis;
 				let pos_max_chunk = pos_max_chunk - yaxis;
 
-				self.unload_chunks(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update_face(BlockFace::YNeg, neg_min_chunk + BlockPos::new(0, 1, 0), neg_max_chunk + BlockPos::new(0, 1, 0));
+				self.unload_chunks(pos_min_chunk, pos_max_chunk, None);
+				//self.chunk_mesh_update_face(BlockFace::YNeg, neg_min_chunk + BlockPos::new(0, 1, 0), neg_max_chunk + BlockPos::new(0, 1, 0));
 
-				self.load_chunks(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+				self.load_chunks(neg_min_chunk, neg_max_chunk, None);
 			} else {
 				todo!("moved to far for current player moving code");
 			}
@@ -391,22 +446,18 @@ impl World {
 				let neg_min_chunk = neg_min_chunk + zaxis;
 				let neg_max_chunk = neg_max_chunk + zaxis;
 
-				self.unload_chunks(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update_face(BlockFace::ZPos, neg_min_chunk - BlockPos::new(0, 0, 1), neg_max_chunk - BlockPos::new(0, 0, 1));
+				self.unload_chunks(neg_min_chunk, neg_max_chunk, None);
+				//self.chunk_mesh_update_face(BlockFace::ZPos, neg_min_chunk - BlockPos::new(0, 0, 1), neg_max_chunk - BlockPos::new(0, 0, 1));
 
-				self.load_chunks(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
+				self.load_chunks(pos_min_chunk, pos_max_chunk, None);
 			} else if chunk_position.z == player.chunk_position().z - 1 {
 				let pos_min_chunk = pos_min_chunk - zaxis;
 				let pos_max_chunk = pos_max_chunk - zaxis;
 
-				self.unload_chunks(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update(pos_min_chunk, pos_max_chunk);
-				self.chunk_mesh_update_face(BlockFace::ZNeg, neg_min_chunk + BlockPos::new(0, 0, 1), neg_max_chunk + BlockPos::new(0, 0, 1));
+				self.unload_chunks(pos_min_chunk, pos_max_chunk, None);
+				//self.chunk_mesh_update_face(BlockFace::ZNeg, neg_min_chunk + BlockPos::new(0, 0, 1), neg_max_chunk + BlockPos::new(0, 0, 1));
 
-				self.load_chunks(neg_min_chunk, neg_max_chunk);
-				self.chunk_mesh_update(neg_min_chunk, neg_max_chunk);
+				self.load_chunks(neg_min_chunk, neg_max_chunk, None);
 			} else {
 				todo!("moved to far for current player moving code");
 			}

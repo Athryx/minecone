@@ -35,7 +35,7 @@ pub struct Client {
 }
 
 impl Client {
-	const MESH_UPDATE_FRAME_DELAY: u64 = 20;
+	const MESH_UPDATE_FRAME_DELAY: u64 = 5;
 
 	pub fn new(window: &Window, world: Arc<World>) -> Self {
 		let renderer = pollster::block_on(Renderer::new(window));

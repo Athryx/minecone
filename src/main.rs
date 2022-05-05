@@ -2,6 +2,7 @@
 #![feature(const_fn_floating_point_arithmetic)]
 #![feature(let_chains)]
 #![feature(test)]
+#![feature(drain_filter)]
 
 #![warn(clippy::disallowed_types)]
 

@@ -9,15 +9,28 @@ use crossbeam::{
 };
 
 use crate::prelude::*;
-use super::world::World;
+use super::{world::World, BlockFace};
+use super::chunk::{VisitedBlockMap, CHUNK_SIZE};
 
 static TASK_QUEUE: SyncLazy<Injector<Task>> = SyncLazy::new(|| Injector::new());
 static COMPLETED_TASKS: SegQueue<Task> = SegQueue::new();
 
+// TODO: allow easy way of chaining tasks
 #[derive(Debug, Clone)]
 pub enum Task {
 	// generate a mesh for the given chunk
 	ChunkMesh(ChunkPos),
+	ChunkMeshFace {
+		min_chunk: ChunkPos,
+		max_chunk: ChunkPos,
+		face: BlockFace,
+	},
+	// use world generate to generate chunk
+	GenerateChunk(ChunkPos),
+	UnloadChunks {
+		min_chunk: ChunkPos,
+		max_chunk: ChunkPos,
+	},
 }
 
 pub fn init(world: Arc<World>, num_tasks: usize) {
@@ -51,11 +64,61 @@ fn task_runner(world: Arc<World>) {
 }
 
 // executes the given task
-fn execute_task(world: &World, task: Task) {
+fn execute_task(world: &Arc<World>, task: Task) {
 	match task {
 		Task::ChunkMesh(chunk) => {
 			world.chunks.get(&chunk).map(|chunk| chunk.value().chunk.chunk_mesh_update());
 			COMPLETED_TASKS.push(task);
 		},
-	};
+		Task::ChunkMeshFace { face, min_chunk, max_chunk } => {
+			let mut visit_map = VisitedBlockMap::new();
+
+			for x in min_chunk.x..max_chunk.x {
+				for y in min_chunk.y..max_chunk.y {
+					for z in min_chunk.z..max_chunk.z {
+						let chunk_pos = BlockPos::new(x, y, z);
+						if let Some(chunk) = world.chunks.get(&chunk_pos) {
+							let index = if face.is_positive_face() {
+								CHUNK_SIZE - 1
+							} else {
+								0
+							};
+
+							chunk.chunk.mesh_update_inner(face, index, &mut visit_map);
+						}
+					}
+				}
+			}
+
+			COMPLETED_TASKS.push(task);
+		},
+		Task::GenerateChunk(chunk) => {
+			let chunk = world.chunks.entry(chunk)
+				.or_insert_with(|| world.world_generator
+					.generate_chunk(world.clone(), chunk));
+
+			// when first inserting load count starts at 0
+			chunk.inc_load_count();
+
+			COMPLETED_TASKS.push(task);
+		},
+		Task::UnloadChunks { min_chunk, max_chunk } => {
+			for x in min_chunk.x..max_chunk.x {
+				for y in min_chunk.y..max_chunk.y {
+					for z in min_chunk.z..max_chunk.z {
+						let position = ChunkPos::new(x, y, z);
+
+						if let Some(loaded_chunk) = world.chunks.get(&position) {
+							if loaded_chunk.dec_load_count() == 0 {
+								drop(loaded_chunk);
+								world.chunks.remove(&position);
+							}
+						}
+					}
+				}
+			}
+
+			COMPLETED_TASKS.push(task);
+		},
+	}
 }

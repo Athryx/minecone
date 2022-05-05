@@ -155,14 +155,14 @@ impl CameraController {
 		if self.rotate_up_pressed {
 			let verticle_rotation = Matrix::from_axis_angle(&Unit::new_normalize(right_norm), angle_rotated);
 			let forward_temp = verticle_rotation * forward4;
-			if forward_temp.xyz().normalize().dot(&up) < 0.95 {
+			if forward_temp.xyz().normalize().dot(&up) < 0.98 {
 				forward4 = forward_temp;
 			}
 		}
 		if self.rotate_down_pressed {
 			let verticle_rotation = Matrix::from_axis_angle(&Unit::new_normalize(right_norm), -angle_rotated);
 			let forward_temp = verticle_rotation * forward4;
-			if forward_temp.xyz().normalize().dot(&up) > -0.95 {
+			if forward_temp.xyz().normalize().dot(&up) > -0.98 {
 				forward4 = forward_temp;
 			}
 		}
