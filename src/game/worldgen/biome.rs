@@ -2,7 +2,10 @@ use crate::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceBiome {
-	GrassyPlains,
+	// oak an birch trees grow here
+	Grasslands,
+	// grasslands with far more frequent vegetation and shrubs
+	LushGrasslands,
 	// coniferous tree is a tree like a pine tree
 	ConiferousForest,
 	// forest of other trees
@@ -22,9 +25,23 @@ pub enum SurfaceBiome {
 	// like a desert but with more shrubs growing and vegetation
 	XericShrubland,
 	// savanna with very few trees, mostly grass
-	SavannaWoodland,
-	// savanna with much more frequent trees
 	SavannaGrassland,
+	// savanna with much more frequent trees
+	SavannaWoodland,
+}
+
+impl SurfaceBiome {
+	pub fn new(temp: i64, precipitation: i64) -> Self {
+		// just return grasslands for now
+		Self::Grasslands
+	}
+
+	pub fn height_amplitude(&self) -> f64 {
+		match self {
+			Self::Grasslands => 0.3,
+			_ => 1.0,
+		}
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

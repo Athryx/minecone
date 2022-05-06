@@ -5,6 +5,8 @@ use rustc_hash::FxHashMap;
 use nalgebra::Vector2;
 
 use crate::prelude::*;
+use self::biome::SurfaceBiome;
+
 use super::chunk::{Chunk, LoadedChunk};
 use super::world::World;
 use super::block::*;
@@ -71,15 +73,14 @@ impl WorldGenerator {
 	pub fn new(seed: u32) -> Self {
 		WorldGenerator {
 			height_noise: CachedNoise2D::new(seed, 0.05),
-			biome_height_noise: CachedNoise2D::new(seed + 1, 0.005),
+			biome_height_noise: CachedNoise2D::new(seed + 1, 0.002),
 			biome_temp_noise: CachedNoise2D::new(seed + 2, 0.002),
 			biome_precipitation_noise: CachedNoise2D::new(seed + 3, 0.002),
 		}
 	}
 
-	fn get_height_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> i64 {
-		let noise = 5.0 * self.height_noise.get_block_pos(block, &mut cache.height_noise);
-		(noise * noise) as i64
+	fn get_height_noise(&self, block: BlockPos, amplitude: f64, cache: &mut NoiseCache) -> i64 {
+		(amplitude * self.height_noise.get_block_pos(block, &mut cache.height_noise)) as i64
 	}
 
 	fn get_biome_height_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> i64 {
@@ -87,12 +88,12 @@ impl WorldGenerator {
 		(noise * noise * noise) as i64
 	}
 
-	fn get_biome_temp_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> f64 {
-		self.biome_temp_noise.get_block_pos(block, &mut cache.biome_temp_noise)
+	fn get_biome_temp_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> i64 {
+		(32.0 * self.biome_temp_noise.get_block_pos(block, &mut cache.biome_temp_noise)) as i64
 	}
 
-	fn get_biome_precipitation_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> f64 {
-		self.biome_precipitation_noise.get_block_pos(block, &mut cache.biome_precipitation_noise)
+	fn get_biome_precipitation_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> i64 {
+		(32.0 * self.biome_precipitation_noise.get_block_pos(block, &mut cache.biome_precipitation_noise)) as i64
 	}
 
 	pub fn generate_chunk(&self, world: Arc<World>, position: ChunkPos) -> LoadedChunk {
@@ -102,7 +103,9 @@ impl WorldGenerator {
 			let biome_temp = self.get_biome_temp_noise(block, &mut cache);
 			let biome_precipitation = self.get_biome_precipitation_noise(block, &mut cache);
 
-			let height = self.get_height_noise(block, &mut cache) + self.get_biome_height_noise(block, &mut cache);
+			let biome = SurfaceBiome::new(biome_temp, biome_precipitation);
+
+			let height = self.get_height_noise(block, biome.height_amplitude(), &mut cache) + biome_height;
 			if block.y > height {
 				Air::new()
 			} else if block.y == height {

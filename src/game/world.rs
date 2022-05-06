@@ -53,8 +53,8 @@ impl ChunkLoadJob {
 		chunk.x >= self.min_chunk.x
 			&& chunk.y >= self.min_chunk.y
 			&& chunk.z >= self.min_chunk.z
-			&& chunk.x < self.max_chunk.z
-			&& chunk.y < self.max_chunk.z
+			&& chunk.x < self.max_chunk.x
+			&& chunk.y < self.max_chunk.y
 			&& chunk.z < self.max_chunk.z
 	}
 }
