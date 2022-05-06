@@ -10,6 +10,8 @@ mod air;
 pub use air::*;
 mod dirt;
 pub use dirt::*;
+mod grass;
+pub use grass::*;
 mod stone;
 pub use stone::*;
 mod test_block;
@@ -104,13 +106,15 @@ pub enum TextureIndex {
 	TestBlock = 0,
 	Stone = 1,
 	Dirt = 2,
+	Grass = 3,
 }
 
 impl TextureIndex {
-	const TEXTURE_PATHS: [&'static str; 3] = [
+	const TEXTURE_PATHS: [&'static str; 4] = [
 		"textures/test-block.png",
 		"textures/stone.png",
 		"textures/dirt.png",
+		"textures/grass.png",
 	];
 
 	pub const fn num_textures() -> u32 {
@@ -346,6 +350,7 @@ pub enum BlockType {
 	Air,
 	TestBlock,
 	Dirt,
+	Grass,
 	Stone,
 }
 

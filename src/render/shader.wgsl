@@ -56,34 +56,34 @@ fn fs_main(fragment_in: VertexOutput) -> @location(0) vec4<f32> {
 
 	if (fragment_in.world_normal.x > 0.0) {
 		offset.x = 0.5;
-		offset.y = 0.67;
+		offset.y = 0.66666;
 		sample_pos.x = 0.25 * wrap_pos(fragment_in.world_pos.z);
-		sample_pos.y = 0.25 * wrap_pos(fragment_in.world_pos.y);
+		sample_pos.y = 0.33333 * wrap_pos(fragment_in.world_pos.y);
 	} else if (fragment_in.world_normal.x < 0.0) {
 		offset.x = 0.5;
-		offset.y = 0.33;
+		offset.y = 0.33333;
 		sample_pos.x = 0.25 * wrap_pos(fragment_in.world_pos.z);
-		sample_pos.y = -0.33 * wrap_pos(fragment_in.world_pos.y);
+		sample_pos.y = -0.33333 * wrap_pos(fragment_in.world_pos.y);
 	} else if (fragment_in.world_normal.y > 0.0) {
 		offset.x = 0.25;
-		offset.y = 0.33;
+		offset.y = 0.33333;
 		sample_pos.x = -0.25 * wrap_pos(fragment_in.world_pos.z);
-		sample_pos.y = 0.33 * wrap_pos(fragment_in.world_pos.x);
+		sample_pos.y = 0.33333 * wrap_pos(fragment_in.world_pos.x);
 	} else if (fragment_in.world_normal.y < 0.0) {
 		offset.x = 0.5;
-		offset.y = 0.33;
+		offset.y = 0.33333;
 		sample_pos.x = 0.25 * wrap_pos(fragment_in.world_pos.z);
-		sample_pos.y = 0.33 * wrap_pos(fragment_in.world_pos.x);
+		sample_pos.y = 0.33333 * wrap_pos(fragment_in.world_pos.x);
 	} else if (fragment_in.world_normal.z > 0.0) {
 		offset.x = 0.75;
-		offset.y = 0.33;
+		offset.y = 0.33333;
 		sample_pos.x = 0.25 * wrap_pos(fragment_in.world_pos.y);
-		sample_pos.y = 0.33 * wrap_pos(fragment_in.world_pos.x);
+		sample_pos.y = 0.33333 * wrap_pos(fragment_in.world_pos.x);
 	} else {
 		offset.x = 0.5;
-		offset.y = 0.33;
+		offset.y = 0.33333;
 		sample_pos.x = -0.25 * wrap_pos(fragment_in.world_pos.y);
-		sample_pos.y = 0.33 * wrap_pos(fragment_in.world_pos.x);
+		sample_pos.y = 0.33333 * wrap_pos(fragment_in.world_pos.x);
 	}
 
 	return vec4<f32>(fragment_in.color, 1.0) * textureSample(block_diffuse_textures[fragment_in.texture_index], block_diffuse_sampler, offset + sample_pos);

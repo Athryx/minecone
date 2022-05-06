@@ -1,0 +1,3 @@
+fix meshing updates between chunks
+fix the potential of a chunk unloading before it is loading being handled wrong
+mipmapping

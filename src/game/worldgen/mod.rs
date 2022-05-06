@@ -105,6 +105,8 @@ impl WorldGenerator {
 			let height = self.get_height_noise(block, &mut cache) + self.get_biome_height_noise(block, &mut cache);
 			if block.y > height {
 				Air::new()
+			} else if block.y == height {
+				Grass::new()
 			} else if block.y > height - 5 {
 				Dirt::new()
 			} else {
