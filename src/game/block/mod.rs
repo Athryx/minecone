@@ -14,6 +14,8 @@ mod grass;
 pub use grass::*;
 mod stone;
 pub use stone::*;
+mod rocky_dirt;
+pub use rocky_dirt::*;
 mod test_block;
 pub use test_block::*;
 
@@ -107,14 +109,16 @@ pub enum TextureIndex {
 	Stone = 1,
 	Dirt = 2,
 	Grass = 3,
+	RockyDirt = 4,
 }
 
 impl TextureIndex {
-	const TEXTURE_PATHS: [&'static str; 4] = [
+	const TEXTURE_PATHS: [&'static str; 5] = [
 		"textures/test-block.png",
 		"textures/stone.png",
 		"textures/dirt.png",
 		"textures/grass.png",
+		"textures/rocky-dirt.png",
 	];
 
 	pub const fn num_textures() -> u32 {
@@ -352,6 +356,7 @@ pub enum BlockType {
 	Dirt,
 	Grass,
 	Stone,
+	RockyDirt,
 }
 
 pub trait Block: Send + Sync {

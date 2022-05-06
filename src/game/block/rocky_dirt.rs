@@ -1,24 +1,24 @@
 use super::*;
 
-pub struct Grass {}
+pub struct RockyDirt {}
 
-impl Grass {
+impl RockyDirt {
 	pub fn new() -> Box<dyn Block> {
-		Box::new(Grass {})
+		Box::new(RockyDirt {})
 	}
 }
 
-impl Block for Grass {
+impl Block for RockyDirt {
 	fn name(&self) -> &str {
-		"grass"
+		"rocky dirt"
 	}
 
 	fn block_type(&self) -> BlockType {
-	    BlockType::Grass
+	    BlockType::RockyDirt
 	}
 
 	fn texture_index(&self) -> TextureIndex {
-		TextureIndex::Grass
+		TextureIndex::RockyDirt
 	}
 
 	fn is_translucent(&self) -> bool {

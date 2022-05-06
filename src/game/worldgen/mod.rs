@@ -107,8 +107,10 @@ impl WorldGenerator {
 				Air::new()
 			} else if block.y == height {
 				Grass::new()
-			} else if block.y > height - 5 {
+			} else if block.y > height - 3 {
 				Dirt::new()
+			} else if block.y > height - 6 {
+				RockyDirt::new()
 			} else {
 				Stone::new()
 			}
