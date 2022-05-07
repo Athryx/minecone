@@ -12,6 +12,7 @@ use super::world::World;
 use super::block::*;
 
 mod biome;
+mod biome_map;
 
 type Cache2D = FxHashMap<Vector2<i64>, f64>;
 type Cache3D = FxHashMap<BlockPos, f64>;
@@ -105,7 +106,7 @@ impl WorldGenerator {
 
 			let biome = SurfaceBiome::new(biome_temp, biome_precipitation);
 
-			let height = self.get_height_noise(block, biome.height_amplitude(), &mut cache) + biome_height;
+			let height = self.get_height_noise(block, biome.height_amplitude(), &mut cache);
 			if block.y > height {
 				Air::new()
 			} else if block.y == height {

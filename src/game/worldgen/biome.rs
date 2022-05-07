@@ -38,7 +38,7 @@ impl SurfaceBiome {
 
 	pub fn height_amplitude(&self) -> f64 {
 		match self {
-			Self::Grasslands => 0.3,
+			Self::Grasslands => 4.0,
 			_ => 1.0,
 		}
 	}

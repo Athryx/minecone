@@ -8,7 +8,6 @@ use rustc_hash::FxHashMap;
 use dashmap::DashMap;
 use nalgebra::Vector3;
 use anyhow::Result;
-use rayon::prelude::*;
 use parking_lot::RwLock;
 
 use super::{
