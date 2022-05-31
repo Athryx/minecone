@@ -149,6 +149,8 @@ pub trait BlockPosExt {
 	// gets the component of the vector corresponding with the specified block face
 	fn get_face_component(&self, face: BlockFace) -> i64;
 	fn as_position(&self) -> Position;
+	// returns the components as indicies for indexing the block array in each chunk
+	fn as_indicies(&self) -> Option<(usize, usize, usize)>;
 }
 
 impl BlockPosExt for BlockPos {
@@ -226,6 +228,13 @@ impl BlockPosExt for BlockPos {
 
 	fn as_position(&self) -> Position {
 		Position::new(self.x as f64, self.y as f64, self.z as f64)
+	}
+
+	fn as_indicies(&self) -> Option<(usize, usize, usize)> {
+		let x = self.x.try_into().ok()?;
+		let y = self.y.try_into().ok()?;
+		let z = self.z.try_into().ok()?;
+		Some((x, y, z))
 	}
 }
 

@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use super::{
 	chunk::{Chunk, LoadedChunk, ChunkData, VisitedBlockMap},
 	entity::Entity,
-	block::{BlockFaceMesh, BlockFace, Block, Stone},
+	block::{BlockFaceMesh, BlockFace, Block, BlockTrait},
 	worldgen::WorldGenerator,
 	player::{Player, PlayerId}, CHUNK_SIZE,
 	parallel::{Task, run_task, pull_completed_task},
@@ -201,7 +201,7 @@ impl World {
 
 	#[inline]
 	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
-		where F: FnOnce(&dyn Block) -> T {
+		where F: FnOnce(&Block) -> T {
 		let (chunk_position, block) = block.as_chunk_block_pos();
 
 		Some(f(&*self.chunks.get(&chunk_position)?
@@ -212,7 +212,7 @@ impl World {
 	// the block may be from another chunk
 	#[inline]
 	fn with_block_mut<T, F>(&mut self, block: BlockPos, f: F) -> Option<T>
-		where F: FnOnce(&mut dyn Block) -> T {
+		where F: FnOnce(&mut Block) -> T {
 		let (chunk_position, block) = block.as_chunk_block_pos();
 
 		Some(f(&mut *self.chunks.get(&chunk_position)?
@@ -220,7 +220,7 @@ impl World {
 	}
 
 	// sets the block at BlockPos, returns bool on success
-	pub fn set_block(&self, block_pos: BlockPos, block: Box<dyn Block>) -> bool {
+	pub fn set_block(&self, block_pos: BlockPos, block: Block) -> bool {
 		let (chunk_pos, block_pos) = block_pos.as_chunk_block_pos();
 
 		if let Some(chunk) = self.chunks.get(&chunk_pos) {

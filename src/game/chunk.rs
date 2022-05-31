@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use array_init::array_init;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::block::{Block, BlockFaceMesh, BlockFace, OcclusionCorners};
+use super::block::{Block, BlockTrait, BlockFaceMesh, BlockFace, OcclusionCorners};
 use super::entity::Entity;
 use super::world::World;
 use crate::prelude::*;
@@ -98,15 +98,15 @@ impl VisitedBlockMap {
 	}
 }
 
-type BlockArray = Box<[[[Box<dyn Block>; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;
+type BlockArray = Box<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;
 
 pub struct ChunkBlockRef<'a> {
 	_block_lock: RwLockReadGuard<'a, BlockArray>,
-	block: *const dyn Block,
+	block: *const Block,
 }
 
-impl<'a> Deref for ChunkBlockRef<'a> {
-	type Target = dyn Block + 'a;
+impl Deref for ChunkBlockRef<'_> {
+	type Target = Block;
 
 	fn deref(&self) -> &Self::Target {
 		// safety: read lock will ensure this block is still alive
@@ -116,11 +116,11 @@ impl<'a> Deref for ChunkBlockRef<'a> {
 
 pub struct ChunkBlockRefMut<'a> {
 	_block_lock: RwLockWriteGuard<'a, BlockArray>,
-	block: *mut dyn Block,
+	block: *mut Block,
 }
 
-impl<'a> Deref for ChunkBlockRefMut<'a> {
-	type Target = dyn Block + 'a;
+impl Deref for ChunkBlockRefMut<'_> {
+	type Target = Block;
 
 	fn deref(&self) -> &Self::Target {
 		// safety: write lock will ensure this block is still alive
@@ -151,7 +151,7 @@ pub struct Chunk {
 }
 
 impl Chunk {
-	pub fn new<F: FnMut(BlockPos) -> Box<dyn Block>>(world: Arc<World>, position: ChunkPos, mut block_fn: F) -> Self {
+	pub fn new<F: FnMut(BlockPos) -> Block>(world: Arc<World>, position: ChunkPos, mut block_fn: F) -> Self {
 		let block_position = position * CHUNK_SIZE as i64;
 
 		let blocks = Box::new(array_init(|x| {
@@ -181,7 +181,7 @@ impl Chunk {
 	// the block may be from another chunk
 	#[inline]
 	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
-		where F: FnOnce(&dyn Block) -> T {
+		where F: FnOnce(&dyn BlockTrait) -> T {
 		if block.is_chunk_local() {
 			Some(f(&*self.get_block(block)))
 		} else {
@@ -212,12 +212,11 @@ impl Chunk {
 
 	#[inline]
 	pub fn get_block(&self, block: BlockPos) -> ChunkBlockRef {
-		let x: usize = block.x.try_into().unwrap();
-		let y: usize = block.y.try_into().unwrap();
-		let z: usize = block.z.try_into().unwrap();
+		assert!(block.is_chunk_local());
+		let (x, y, z) = block.as_indicies().unwrap();
 
 		let block_lock = self.blocks.read();
-		let block = &*block_lock[x][y][z] as *const dyn Block;
+		let block = &block_lock[x][y][z] as *const Block;
 		ChunkBlockRef {
 			_block_lock: block_lock,
 			block,
@@ -226,12 +225,11 @@ impl Chunk {
 
 	#[inline]
 	pub fn get_block_mut(&self, block: BlockPos) -> ChunkBlockRefMut {
-		let x: usize = block.x.try_into().unwrap();
-		let y: usize = block.y.try_into().unwrap();
-		let z: usize = block.z.try_into().unwrap();
+		assert!(block.is_chunk_local());
+		let (x, y, z) = block.as_indicies().unwrap();
 
 		let mut block_lock = self.blocks.write();
-		let block = &mut *block_lock[x][y][z] as *mut dyn Block;
+		let block = &mut block_lock[x][y][z] as *mut Block;
 		ChunkBlockRefMut {
 			_block_lock: block_lock,
 			block,
@@ -239,9 +237,11 @@ impl Chunk {
 	}
 
 	#[inline]
-	pub fn set_block(&self, block_pos: BlockPos, block: Box<dyn Block>) {
+	pub fn set_block(&self, block_pos: BlockPos, block: Block) {
 		assert!(block_pos.is_chunk_local());
-		self.blocks.write()[block_pos.x as usize][block_pos.y as usize][block_pos.z as usize] = block;
+		let (x, y, z) = block_pos.as_indicies().unwrap();
+
+		self.blocks.write()[x][y][z] = block;
 	}
 
 	// the visit map is passed in seperately to avoid having to reallocat the memory for the visit map every time	

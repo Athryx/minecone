@@ -126,7 +126,7 @@ impl Client {
 
 		if self.destroy_block {
 			if let Some(block) = self.world.block_raycast(camera_position, camera.forward(), 15.0) {
-				self.world.set_block(block, Air::new());
+				self.world.set_block(block, Air::new().into());
 				self.world.mesh_update_adjacent(block);
 				generate_mesh = true;
 			}

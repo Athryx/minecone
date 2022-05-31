@@ -3,18 +3,14 @@ use super::*;
 pub struct Dirt {}
 
 impl Dirt {
-	pub fn new() -> Box<dyn Block> {
-		Box::new(Dirt {})
+	pub fn new() -> Dirt {
+		Dirt {}
 	}
 }
 
-impl Block for Dirt {
+impl BlockTrait for Dirt {
 	fn name(&self) -> &str {
 		"dirt"
-	}
-
-	fn block_type(&self) -> BlockType {
-	    BlockType::Dirt
 	}
 
 	fn texture_index(&self) -> TextureIndex {

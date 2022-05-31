@@ -1,6 +1,7 @@
 use std::{iter::FusedIterator, mem};
 
 use nalgebra::Vector3;
+use enum_dispatch::enum_dispatch;
 
 pub use crate::render::model::{Vertex, Model};
 use crate::util::{vec3_getx, vec3_gety, vec3_getz};
@@ -349,24 +350,56 @@ impl BlockFaceMesh {
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockType {
+#[enum_dispatch]
+pub trait BlockTrait: Send + Sync {
+	fn name(&self) -> &str;
+	// panics if the block is air (or some other block without a blockmodel)
+	fn texture_index(&self) -> TextureIndex;
+	fn is_translucent(&self) -> bool;
+}
+
+macro_rules! blocks {
+	($block:ident, $block_type:ident, $( $blocks:ident ),+) => {
+		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+		pub enum $block_type {
+			$(
+				$blocks,
+			)*
+		}
+
+		#[enum_dispatch(BlockTrait)]
+		pub enum $block {
+			$(
+				$blocks,
+			)*
+		}
+
+		impl $block {
+			pub fn block_type(&self) -> $block_type {
+				match self {
+					$(
+						Self::$blocks(_) => $block_type::$blocks,
+					)*
+				}
+			}
+		}
+	};
+}
+
+blocks![
+	Block,
+	BlockType,
+
 	Air,
 	TestBlock,
 	Dirt,
 	Grass,
 	Stone,
-	RockyDirt,
-}
+	RockyDirt
+];
 
-pub trait Block: Send + Sync {
-	fn name(&self) -> &str;
-	fn block_type(&self) -> BlockType;
-	// panics if the block is air (or some other block without a blockmodel)
-	fn texture_index(&self) -> TextureIndex;
-	fn is_translucent(&self) -> bool;
-
-	fn is_air(&self) -> bool {
-		self.block_type() == BlockType::Air
+impl Block {
+	pub fn is_air(&self) -> bool {
+		matches!(self, Self::Air(_))
 	}
 }

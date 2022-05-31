@@ -1,3 +1,7 @@
 fix meshing updates between chunks
 fix the potential of a chunk unloading before it is loading being handled wrong
 mipmapping
+improve the way texturing works
+
+minor performance TODOS:
+make the BlockFace enum better

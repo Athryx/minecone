@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::game::block::{Block, Air, Grass, Dirt, RockyDirt, Stone};
+use crate::game::block::{Block, BlockTrait, Air, Grass, Dirt, RockyDirt, Stone};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BiomeNoiseData {
@@ -78,24 +78,24 @@ impl SurfaceBiome {
 
 	// depth is negative for blocks below the surface, and 0 at the surface
 	// returns none if the depth is too deep and it is not apart of this biome
-	pub fn get_block_at_depth(&self, depth: i64) -> Box<dyn Block> {
+	pub fn get_block_at_depth(&self, depth: i64) -> Block {
 		if depth > 0 {
-			Air::new()
+			Air::new().into()
 		} else {
 			match self {
 				Self::Grasslands => {
 					// TODO: make a macro for this
 					if depth == 0 {
-						Grass::new()
+						Grass::new().into()
 					} else if depth > -3 {
-						Dirt::new()
+						Dirt::new().into()
 					} else if depth > -6 {
-						RockyDirt::new()
+						RockyDirt::new().into()
 					} else {
-						Stone::new()
+						Stone::new().into()
 					}
 				},
-				_ => Stone::new(),
+				_ => Stone::new().into(),
 			}
 		}
 	}
