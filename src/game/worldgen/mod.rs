@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
 use noise::{Seedable, NoiseFn, OpenSimplex};
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use nalgebra::Vector2;
 
 use crate::prelude::*;
-use self::biome::SurfaceBiome;
-
+use biome::{SurfaceBiome, BiomeNoiseData};
 use super::chunk::{Chunk, LoadedChunk};
 use super::world::World;
 use super::block::*;
 
 mod biome;
-mod biome_map;
 
 type Cache2D = FxHashMap<Vector2<i64>, f64>;
 type Cache3D = FxHashMap<BlockPos, f64>;
@@ -75,8 +74,8 @@ impl WorldGenerator {
 		WorldGenerator {
 			height_noise: CachedNoise2D::new(seed, 0.05),
 			biome_height_noise: CachedNoise2D::new(seed + 1, 0.002),
-			biome_temp_noise: CachedNoise2D::new(seed + 2, 0.002),
-			biome_precipitation_noise: CachedNoise2D::new(seed + 3, 0.002),
+			biome_temp_noise: CachedNoise2D::new(seed + 2, 0.0002),
+			biome_precipitation_noise: CachedNoise2D::new(seed + 3, 0.0002),
 		}
 	}
 
@@ -89,35 +88,27 @@ impl WorldGenerator {
 		(noise * noise * noise) as i64
 	}
 
-	fn get_biome_temp_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> i64 {
-		(32.0 * self.biome_temp_noise.get_block_pos(block, &mut cache.biome_temp_noise)) as i64
-	}
-
-	fn get_biome_precipitation_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> i64 {
-		(32.0 * self.biome_precipitation_noise.get_block_pos(block, &mut cache.biome_precipitation_noise)) as i64
+	fn get_biome_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> BiomeNoiseData {
+		// this seems to make it about uniform over the range of 0..16
+		let temperature = (8.0 + (25.0 * self.biome_temp_noise.get_block_pos(block, &mut cache.biome_temp_noise))).clamp(0.0, 15.0) as u8;
+		let precipitation = (8.0 + (25.0 * self.biome_precipitation_noise.get_block_pos(block, &mut cache.biome_precipitation_noise))).clamp(0.0, 15.0) as u8;
+		BiomeNoiseData {
+			temperature,
+			precipitation,
+		}
 	}
 
 	pub fn generate_chunk(&self, world: Arc<World>, position: ChunkPos) -> LoadedChunk {
 		let mut cache = NoiseCache::default();
 		LoadedChunk::new(Chunk::new(world, position, |block| {
 			let biome_height = self.get_biome_height_noise(block, &mut cache);
-			let biome_temp = self.get_biome_temp_noise(block, &mut cache);
-			let biome_precipitation = self.get_biome_precipitation_noise(block, &mut cache);
+			let biome_noise = self.get_biome_noise(block, &mut cache);
 
-			let biome = SurfaceBiome::new(biome_temp, biome_precipitation);
+			let biome = SurfaceBiome::new(biome_noise);
 
 			let height = self.get_height_noise(block, biome.height_amplitude(), &mut cache);
-			if block.y > height {
-				Air::new()
-			} else if block.y == height {
-				Grass::new()
-			} else if block.y > height - 3 {
-				Dirt::new()
-			} else if block.y > height - 6 {
-				RockyDirt::new()
-			} else {
-				Stone::new()
-			}
+
+			biome.get_block_at_depth(block.y - height)
 		}))
 	}
 }
