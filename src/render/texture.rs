@@ -18,8 +18,8 @@ impl Texture {
 		label: &str,
 		context: RenderContext,
 	) -> Result<Self> {
-		let bytes = loader().load_bytes(file_name)?;
-		Self::from_bytes(&bytes, label, context)
+		let image = loader().load_image(file_name)?;
+		Ok(Self::from_image(&image, label, context))
 	}
 
 	pub fn from_bytes(
@@ -28,14 +28,14 @@ impl Texture {
 		context: RenderContext,
 	) -> Result<Self> {
 		let image = image::load_from_memory(bytes)?;
-		Self::from_image(&image, label, context)
+		Ok(Self::from_image(&image, label, context))
 	}
 
 	pub fn from_image(
 		image: &DynamicImage,
 		label: &str,
 		context: RenderContext,
-	) -> Result<Self> {
+	) -> Self {
 		let dimensions = image.dimensions();
 		let rgba = image.to_rgba8();
 
@@ -83,10 +83,10 @@ impl Texture {
 
 		let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-		Ok(Self {
+		Self {
 			texture,
 			view,
-		})
+		}
 	}
 }
 

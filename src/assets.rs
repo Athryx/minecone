@@ -6,6 +6,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 
 use anyhow::Result;
+use image::DynamicImage;
 
 use crate::render::RenderContext;
 use crate::render::model::Model;
@@ -38,6 +39,10 @@ impl AssetLoader {
 
 	pub fn load_bytes<T: AsRef<Path>>(&self, file: T) -> Result<Vec<u8>> {
 		Ok(fs::read(&self.path_of(file))?)
+	}
+
+	pub fn load_image<T: AsRef<Path>>(&self, file: T) -> Result<DynamicImage> {
+		Ok(image::open(&self.path_of(file))?)
 	}
 
 	pub fn load_obj<T: AsRef<Path>>(&self, file: T) -> Result<(Vec<tobj::Model>, Vec<tobj::Material>)> {

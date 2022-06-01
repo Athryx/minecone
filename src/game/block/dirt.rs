@@ -6,15 +6,15 @@ impl Dirt {
 	pub fn new() -> Dirt {
 		Dirt {}
 	}
+
+	pub fn get_texture() -> Result<DynamicImage> {
+		loader().load_image("textures/dirt.png")
+	}
 }
 
 impl BlockTrait for Dirt {
 	fn name(&self) -> &str {
 		"dirt"
-	}
-
-	fn texture_index(&self) -> TextureIndex {
-		TextureIndex::Dirt
 	}
 
 	fn is_translucent(&self) -> bool {

@@ -1,6 +1,7 @@
 use std::{mem, path::Path};
 
 use anyhow::Result;
+use image::DynamicImage;
 use wgpu::util::DeviceExt;
 use nalgebra::{Vector3, Scale3, Matrix4, UnitQuaternion};
 
@@ -132,17 +133,17 @@ impl Material {
 		})
 	}
 
-	pub fn load_array_from_files<T: AsRef<Path>>(
-		files: &[T],
+	pub fn array_from_images(
+		images: &[DynamicImage],
 		name: String,
 		context: RenderContext,
-	) -> Result<Self> {
-		let mut diffuse_textures = Vec::with_capacity(files.len());
-		for file in files.iter() {
-			diffuse_textures.push(Texture::from_file(file, &format!("{} diffuse texture", name), context)?);
+	) -> Self {
+		let mut diffuse_textures = Vec::with_capacity(images.len());
+		for image in images.iter() {
+			diffuse_textures.push(Texture::from_image(image, &format!("{} diffuse texture", name), context));
 		}
 
-		let mut texture_views = Vec::with_capacity(files.len());
+		let mut texture_views = Vec::with_capacity(images.len());
 		for texture in diffuse_textures.iter() {
 			texture_views.push(&texture.view);
 		}
@@ -177,12 +178,12 @@ impl Material {
 			}
 		);
 
-		Ok(Self {
+		Self {
 			name,
 			diffuse_textures,
 			diffuse_sampler,
 			bind_group,
-		})
+		}
 	}
 }
 

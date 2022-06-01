@@ -11,10 +11,9 @@ use crate::prelude::*;
 use crate::render::Renderer;
 use crate::render::model::{Mesh, Material, ModelVertex};
 use camera_controller::CameraController;
-use super::TextureIndex;
 use super::player::PlayerId;
 use super::world::World;
-use super::block::{BlockFaceMesh, Air};
+use super::block::{generate_texture_array, BlockFaceMesh, Air};
 
 mod camera_controller;
 
@@ -40,8 +39,8 @@ impl Client {
 	pub fn new(window: &Window, world: Arc<World>) -> Self {
 		let renderer = pollster::block_on(Renderer::new(window));
 
-		let block_textures = Material::load_array_from_files(TextureIndex::resource_paths(), String::from("texture map"), renderer.context())
-			.expect("could not load texture map");
+		let texture_array = generate_texture_array().expect("could not load texture map");
+		let block_textures = Material::array_from_images(&texture_array, String::from("texture map"), renderer.context());
 
 		let player_id = world.connect();
 

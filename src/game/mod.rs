@@ -16,7 +16,7 @@ mod client;
 mod player;
 mod entity;
 mod block;
-pub use block::{BlockFace, BlockVertex, TextureIndex};
+pub use block::{BlockFace, BlockVertex, num_textures};
 mod chunk;
 pub use chunk::CHUNK_SIZE;
 mod parallel;

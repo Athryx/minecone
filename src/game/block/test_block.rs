@@ -6,15 +6,15 @@ impl TestBlock {
 	pub fn new() -> TestBlock {
 		TestBlock {}
 	}
+
+	pub fn get_texture() -> Result<DynamicImage> {
+		loader().load_image("textures/test-block.png")
+	}
 }
 
 impl BlockTrait for TestBlock {
 	fn name(&self) -> &str {
 		"test block"
-	}
-
-	fn texture_index(&self) -> TextureIndex {
-		TextureIndex::TestBlock
 	}
 
 	fn is_translucent(&self) -> bool {

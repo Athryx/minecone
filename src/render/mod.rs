@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 use texture::{Texture, DepthTexture};
 use camera::Camera;
 use model::*;
-use crate::game::{BlockVertex, TextureIndex};
+use crate::game::{BlockVertex, num_textures};
 
 pub mod camera;
 pub mod model;
@@ -92,7 +92,7 @@ impl Renderer {
 							view_dimension: wgpu::TextureViewDimension::D2,
 							sample_type: wgpu::TextureSampleType::Float { filterable: true },
 						},
-						count: NonZeroU32::new(TextureIndex::num_textures()),
+						count: NonZeroU32::new(num_textures()),
 					},
 					wgpu::BindGroupLayoutEntry {
 						binding: 1,

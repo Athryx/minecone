@@ -1,12 +1,16 @@
 use std::{iter::FusedIterator, mem};
 
+use image::DynamicImage;
 use nalgebra::Vector3;
 use enum_dispatch::enum_dispatch;
+use anyhow::Result;
 
 pub use crate::render::model::{Vertex, Model};
 use crate::util::{vec3_getx, vec3_gety, vec3_getz};
 use crate::prelude::*;
+use crate::assets::loader;
 
+mod texmanip;
 mod air;
 pub use air::*;
 mod dirt;
@@ -104,38 +108,7 @@ impl Iterator for BlockFaceIter {
 impl FusedIterator for BlockFaceIter {}
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TextureIndex {
-	TestBlock = 0,
-	Stone = 1,
-	Dirt = 2,
-	Grass = 3,
-	RockyDirt = 4,
-}
-
-impl TextureIndex {
-	const TEXTURE_PATHS: [&'static str; 5] = [
-		"textures/test-block.png",
-		"textures/stone.png",
-		"textures/dirt.png",
-		"textures/grass.png",
-		"textures/rocky-dirt.png",
-	];
-
-	pub const fn num_textures() -> u32 {
-		Self::TEXTURE_PATHS.len() as u32
-	}
-
-	pub const fn resource_paths() -> &'static [&'static str] {
-		&Self::TEXTURE_PATHS
-	}
-}
-
-impl From<TextureIndex> for i32 {
-	fn from(texture_type: TextureIndex) -> i32 {
-		texture_type as i32
-	}
-}
+pub type TextureIndex = i32;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OcclusionCorners {
@@ -171,7 +144,7 @@ pub struct BlockVertex {
 	// texture color will be mutiplied by this color
 	color: [f32; 3],
 	// the wgpu sample function takes in a signed integer so we use it here
-	texture_index: i32,
+	texture_index: TextureIndex,
 }
 
 impl BlockVertex {
@@ -187,7 +160,7 @@ impl BlockVertex {
 				3 => [0.4, 0.4, 0.4],
 				_ => panic!("invalid occlusion level passed to BlockVertex::new()"),
 			},
-			texture_index: texture_index.into(),
+			texture_index,
 		}
 	}
 
@@ -353,22 +326,46 @@ impl BlockFaceMesh {
 #[enum_dispatch]
 pub trait BlockTrait: Send + Sync {
 	fn name(&self) -> &str;
-	// panics if the block is air (or some other block without a blockmodel)
-	fn texture_index(&self) -> TextureIndex;
 	fn is_translucent(&self) -> bool;
 }
 
 macro_rules! blocks {
-	($block:ident, $block_type:ident, $( $blocks:ident ),+) => {
+	($block:ident,
+		$block_type:ident,
+		$max_texture_index:ident,
+		untextured {
+			$( $ublocks:ident ),+,
+		},
+		textured {
+			$( $blocks:ident ),+,
+		},
+	) => {
+		// this enum is used to calculate the maximum allowed texture index
+		#[repr(u8)]
+		#[derive(Debug, Clone, Copy)]
+		enum $max_texture_index {
+			$(
+				$blocks,
+			)*
+			Max,
+		}
+
+		#[repr(u8)]
 		#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 		pub enum $block_type {
 			$(
 				$blocks,
 			)*
+			$(
+				$ublocks,
+			)*
 		}
 
 		#[enum_dispatch(BlockTrait)]
 		pub enum $block {
+			$(
+				$ublocks,
+			)*
 			$(
 				$blocks,
 			)*
@@ -378,28 +375,58 @@ macro_rules! blocks {
 			pub fn block_type(&self) -> $block_type {
 				match self {
 					$(
+						Self::$ublocks(_) => $block_type::$ublocks,
+					)*
+					$(
 						Self::$blocks(_) => $block_type::$blocks,
 					)*
 				}
 			}
 		}
+
+		pub fn generate_texture_array() -> Result<Vec<DynamicImage>> {
+			Ok(vec![
+				$(
+					$blocks::get_texture()?,
+				)*
+			])
+		}
 	};
 }
 
-blocks![
+blocks! {
 	Block,
 	BlockType,
+	MaxTextureIndex,
 
-	Air,
-	TestBlock,
-	Dirt,
-	Grass,
-	Stone,
-	RockyDirt
-];
+	untextured {
+		Air,
+	},
+
+	textured {
+		TestBlock,
+		Dirt,
+		Grass,
+		Stone,
+		RockyDirt,
+	},
+}
 
 impl Block {
 	pub fn is_air(&self) -> bool {
 		matches!(self, Self::Air(_))
 	}
+
+	pub fn texture_index(&self) -> Option<TextureIndex> {
+		let block_type = self.block_type() as u8;
+		if block_type >= MaxTextureIndex::Max as u8 {
+			None
+		} else {
+			Some(block_type.into())
+		}
+	}
+}
+
+pub fn num_textures() -> u32 {
+	MaxTextureIndex::Max as u32
 }

@@ -6,15 +6,15 @@ impl RockyDirt {
 	pub fn new() -> RockyDirt {
 		RockyDirt {}
 	}
+
+	pub fn get_texture() -> Result<DynamicImage> {
+		loader().load_image("textures/rocky-dirt.png")
+	}
 }
 
 impl BlockTrait for RockyDirt {
 	fn name(&self) -> &str {
 		"rocky dirt"
-	}
-
-	fn texture_index(&self) -> TextureIndex {
-		TextureIndex::RockyDirt
 	}
 
 	fn is_translucent(&self) -> bool {
