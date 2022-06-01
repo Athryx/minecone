@@ -8,7 +8,7 @@ impl Stone {
 	}
 
 	pub fn get_texture() -> Result<DynamicImage> {
-		loader().load_image("textures/stone.png")
+		Ok(texmanip::tile_from_side(&loader().load_image("textures/stone.png")?))
 	}
 }
 

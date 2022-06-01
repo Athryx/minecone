@@ -8,7 +8,7 @@ impl TestBlock {
 	}
 
 	pub fn get_texture() -> Result<DynamicImage> {
-		loader().load_image("textures/test-block.png")
+		Ok(texmanip::tile_from_side(&loader().load_image("textures/test-block.png")?))
 	}
 }
 
