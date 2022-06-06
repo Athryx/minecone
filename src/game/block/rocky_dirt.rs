@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Debug, Clone)]
 pub struct RockyDirt {}
 
 impl RockyDirt {

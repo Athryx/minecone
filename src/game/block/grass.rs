@@ -1,6 +1,7 @@
 use super::*;
 use texmanip::*;
 
+#[derive(Debug, Clone)]
 pub struct Grass {}
 
 impl Grass {

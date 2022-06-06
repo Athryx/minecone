@@ -3,12 +3,12 @@ use crate::game::block::{Block, BlockTrait, Air, Grass, Dirt, RockyDirt, Stone};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BiomeNoiseData {
-	// there will be 16 different temperature and precipitation levels used to determine the biome type
-	pub temperature: u8,
-	pub precipitation: u8,
+	// there will be 16 different heat and humidity levels used to determine the biome type
+	pub heat: u8,
+	pub humidity: u8,
 }
 
-// the first index is temperature, the second is precipitation
+// the first index is heat, the second is humidity
 const BIOME_MAP: [[SurfaceBiome; 16]; 16] = {
 	use SurfaceBiome::*;
 	// colder
@@ -66,7 +66,7 @@ pub enum SurfaceBiome {
 
 impl SurfaceBiome {
 	pub fn new(biome_noise: BiomeNoiseData) -> Self {
-		BIOME_MAP[biome_noise.temperature as usize][biome_noise.precipitation as usize]
+		BIOME_MAP[biome_noise.heat as usize][biome_noise.humidity as usize]
 	}
 
 	pub fn height_amplitude(&self) -> f64 {

@@ -362,6 +362,7 @@ macro_rules! blocks {
 		}
 
 		#[enum_dispatch(BlockTrait)]
+		#[derive(Debug, Clone)]
 		pub enum $block {
 			$(
 				$ublocks,

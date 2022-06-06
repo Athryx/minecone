@@ -4,14 +4,17 @@ use noise::{Seedable, NoiseFn, OpenSimplex};
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use nalgebra::Vector2;
+use statrs::function::erf::erf;
 
 use crate::prelude::*;
 use biome::{SurfaceBiome, BiomeNoiseData};
+use surface_biome::SurfaceBiomeMap;
 use super::chunk::{Chunk, LoadedChunk};
 use super::world::World;
 use super::block::*;
 
 mod biome;
+mod surface_biome;
 
 type Cache2D = FxHashMap<Vector2<i64>, f64>;
 type Cache3D = FxHashMap<BlockPos, f64>;
@@ -20,13 +23,14 @@ type Cache3D = FxHashMap<BlockPos, f64>;
 struct NoiseCache {
 	height_noise: Cache2D,
 	biome_height_noise: Cache2D,
-	biome_temp_noise: Cache2D,
-	biome_precipitation_noise: Cache2D,
+	biome_heat_noise: Cache2D,
+	biome_humidity_noise: Cache2D,
 }
 
 struct CachedNoise2D {
 	noise: OpenSimplex,
 	scale: f64,
+	amplitude_fn: fn(f64) -> f64,
 }
 
 impl CachedNoise2D {
@@ -34,18 +38,28 @@ impl CachedNoise2D {
 		Self {
 			noise: OpenSimplex::new().set_seed(seed),
 			scale,
+			amplitude_fn: |value| value,
+		}
+	}
+
+	fn new_amplitude_scaled(seed: u32, scale: f64, amplitude_fn: fn(f64) -> f64) -> Self {
+		Self {
+			noise: OpenSimplex::new().set_seed(seed),
+			scale,
+			amplitude_fn,
 		}
 	}
 
 	fn get_block_pos(&self, block: BlockPos, cache: &mut Cache2D) -> f64 {
 		*cache.entry(block.xz()).or_insert_with(||
-			self.noise.get([block.x as f64 * self.scale, block.z as f64 * self.scale]))
+			(self.amplitude_fn)(self.noise.get([block.x as f64 * self.scale, block.z as f64 * self.scale])))
 	}
 }
 
 struct CachedNoise3D {
 	noise: OpenSimplex,
 	scale: f64,
+	amplitude_fn: fn(f64) -> f64,
 }
 
 impl CachedNoise3D {
@@ -53,29 +67,49 @@ impl CachedNoise3D {
 		Self {
 			noise: OpenSimplex::new().set_seed(seed),
 			scale,
+			amplitude_fn: |value| value,
+		}
+	}
+
+	fn new_amplitude_scaled(seed: u32, scale: f64, amplitude_fn: fn(f64) -> f64) -> Self {
+		Self {
+			noise: OpenSimplex::new().set_seed(seed),
+			scale,
+			amplitude_fn,
 		}
 	}
 
 	fn get_block_pos(&self, block: BlockPos, cache: &mut Cache3D) -> f64 {
 		*cache.entry(block).or_insert_with(||
-			self.noise.get([block.x as f64 * self.scale, block.y as f64 * self.scale, block.z as f64 * self.scale]))
+			(self.amplitude_fn)(self.noise.get([block.x as f64 * self.scale, block.y as f64 * self.scale, block.z as f64 * self.scale])))
 	}
 }
 
 pub struct WorldGenerator {
 	height_noise: CachedNoise2D,
 	biome_height_noise: CachedNoise2D,
-	biome_temp_noise: CachedNoise2D,
-	biome_precipitation_noise: CachedNoise2D,
+	biome_heat_noise: CachedNoise2D,
+	biome_humidity_noise: CachedNoise2D,
+	surface_biome_map: SurfaceBiomeMap,
 }
 
 impl WorldGenerator {
 	pub fn new(seed: u32) -> Self {
+		// TODO: this doesn't make it completely uniform, could be better
+		let biome_make_uniform = |value: f64| {
+			// the varience of opensimplex is about this
+			let varience: f64 = 0.0463;
+			let uniform = erf(value / (2.0 * varience).sqrt());
+			(25.0 + 25.0 * uniform).clamp(0.0, 49.0)
+			/*(25.0 + 55.0 * value).clamp(0.0, 49.0) as u8*/
+		};
+
 		WorldGenerator {
 			height_noise: CachedNoise2D::new(seed, 0.05),
 			biome_height_noise: CachedNoise2D::new(seed + 1, 0.002),
-			biome_temp_noise: CachedNoise2D::new(seed + 2, 0.0002),
-			biome_precipitation_noise: CachedNoise2D::new(seed + 3, 0.0002),
+			biome_heat_noise: CachedNoise2D::new_amplitude_scaled(seed + 2, 0.002, biome_make_uniform),
+			biome_humidity_noise: CachedNoise2D::new_amplitude_scaled(seed + 3, 0.002, biome_make_uniform),
+			surface_biome_map: SurfaceBiomeMap::new(),
 		}
 	}
 
@@ -89,12 +123,19 @@ impl WorldGenerator {
 	}
 
 	fn get_biome_noise(&self, block: BlockPos, cache: &mut NoiseCache) -> BiomeNoiseData {
-		// this seems to make it about uniform over the range of 0..16
-		let temperature = (8.0 + (25.0 * self.biome_temp_noise.get_block_pos(block, &mut cache.biome_temp_noise))).clamp(0.0, 15.0) as u8;
-		let precipitation = (8.0 + (25.0 * self.biome_precipitation_noise.get_block_pos(block, &mut cache.biome_precipitation_noise))).clamp(0.0, 15.0) as u8;
+		// TODO: this doesn't make it completely uniform, could be better
+		let make_uniform = |value: f64| {
+			// the varience of opensimplex is about this
+			let varience: f64 = 0.0463;
+			let uniform = erf(value / (2.0 * varience).sqrt());
+			(25.0 + 25.0 * uniform).clamp(0.0, 49.0) as u8
+			/*(25.0 + 55.0 * value).clamp(0.0, 49.0) as u8*/
+		};
+		let heat = self.biome_heat_noise.get_block_pos(block, &mut cache.biome_heat_noise) as u8;
+		let humidity = self.biome_humidity_noise.get_block_pos(block, &mut cache.biome_humidity_noise) as u8;
 		BiomeNoiseData {
-			temperature,
-			precipitation,
+			heat,
+			humidity,
 		}
 	}
 
@@ -104,9 +145,16 @@ impl WorldGenerator {
 			let biome_height = self.get_biome_height_noise(block, &mut cache);
 			let biome_noise = self.get_biome_noise(block, &mut cache);
 
-			let biome = SurfaceBiome::new(biome_noise);
+			/*let mut temp = [[0; 50]; 50];
+			for x in 0..1000000 {
+				let noise = self.get_biome_noise(BlockPos::new(x, 0, 0), &mut cache);
+				temp[noise.humidity as usize][noise.heat as usize] += 1;
+			}
+			println!("{:?}", temp);*/
 
-			let height = self.get_height_noise(block, biome.height_amplitude(), &mut cache);
+			let biome = self.surface_biome_map.get_biome(biome_noise);
+
+			let height = self.get_height_noise(block, biome.height_amplitude, &mut cache);
 
 			biome.get_block_at_depth(block.y - height)
 		}))

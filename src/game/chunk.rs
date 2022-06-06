@@ -181,13 +181,13 @@ impl Chunk {
 	// the block may be from another chunk
 	#[inline]
 	fn with_block<T, F>(&self, block: BlockPos, f: F) -> Option<T>
-		where F: FnOnce(&dyn BlockTrait) -> T {
+		where F: FnOnce(&Block) -> T {
 		if block.is_chunk_local() {
-			Some(f(&*self.get_block(block)))
+			Some(f(&self.get_block(block)))
 		} else {
 			let chunk_position = block.as_chunk_pos() + self.chunk_position;
 
-			Some(f(&*self.world
+			Some(f(&self.world
 				.chunks.get(&chunk_position)?
 				.chunk.get_block(block.as_chunk_local())))
 		}
